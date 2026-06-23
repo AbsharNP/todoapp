@@ -999,6 +999,32 @@ h5 { font-size: 13px; font-weight: 600; }
 .dropdown-item.danger:hover { background: var(--red-bg); }
 .dropdown-divider { height: 1px; background: var(--border); margin: 4px 0; }
 
+/* ── Tooltips ──────────────────────────────────────────────── */
+[data-tooltip] { position: relative; }
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 7px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-1);
+  color: var(--text-1);
+  font-size: 11px;
+  line-height: 1.3;
+  padding: 5px 9px;
+  border-radius: var(--radius);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s;
+  z-index: 9999;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+}
+[data-tooltip]:hover::after { opacity: 1; }
+[data-tooltip].tt-bottom::after { bottom: auto; top: calc(100% + 7px); }
+[data-tooltip].tt-right::after { left: calc(100% + 7px); bottom: auto; top: 50%; transform: translateY(-50%); }
+
 /* ── Section header ────────────────────────────────────────── */
 .section-header {
   display: flex;

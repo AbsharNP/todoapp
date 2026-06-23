@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /invite.html
+
+Sitemap: https://taskflow-gules-iota.vercel.app/sitemap.xml

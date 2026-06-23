@@ -3,8 +3,48 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TaskFlow – Login</title>
+
+  <!-- Primary SEO -->
+  <title>TaskFlow – Free Kanban Board, Task Manager & Diagram Builder for Teams</title>
+  <meta name="description" content="TaskFlow is a free collaborative task management app with kanban boards, ER diagram builder, and flowchart tools. Organize tasks, invite your team, and visualize workflows — no credit card needed.">
+  <meta name="keywords" content="task management, kanban board, ER diagram builder, flowchart tool, team collaboration, project management, free task manager, to-do app, diagram editor">
+  <meta name="author" content="TaskFlow">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://taskflow-gules-iota.vercel.app/">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://taskflow-gules-iota.vercel.app/">
+  <meta property="og:site_name" content="TaskFlow">
+  <meta property="og:title" content="TaskFlow – Free Kanban Board & Diagram Builder for Teams">
+  <meta property="og:description" content="Organize tasks with kanban boards, build ER diagrams and flowcharts, and collaborate with your team — all for free. No account required to get started.">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="TaskFlow – Free Kanban Board & Diagram Builder">
+  <meta name="twitter:description" content="Organize tasks, build ER diagrams, and collaborate with your team for free.">
+
+  <!-- Performance hints -->
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="preconnect" href="https://code.jquery.com" crossorigin>
+  <link rel="dns-prefetch" href="https://wxoxwmsuquhltlyebvje.supabase.co">
+
   <link rel="stylesheet" href="css/style.css">
+
+  <!-- Structured data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "TaskFlow",
+    "url": "https://taskflow-gules-iota.vercel.app/",
+    "description": "Free collaborative task management app with kanban boards, ER diagram builder, and flowchart tools for teams.",
+    "applicationCategory": "BusinessApplication",
+    "operatingSystem": "Web",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "featureList": ["Kanban Board", "ER Diagram Builder", "Flowchart Builder", "Team Collaboration", "Task Assignments", "Export & Import"]
+  }
+  </script>
 </head>
 <body class="auth-page">
   <div class="auth-glow auth-glow-1"></div>
@@ -77,42 +117,42 @@
       </div>
     </div>
 
-    <!-- Right: Features -->
-    <div class="auth-right">
+    <!-- Right: Features (crawlable SEO content) -->
+    <div class="auth-right" role="complementary" aria-label="App features">
       <div>
-        <h3 style="font-size:17px;font-weight:700;margin-bottom:6px;">Everything your team needs</h3>
-        <p style="font-size:13px;color:var(--text-2);line-height:1.6;">Organize tasks, collaborate with your team, and visualize your data flow.</p>
+        <h1 style="font-size:17px;font-weight:700;margin-bottom:6px;">Everything your team needs</h1>
+        <p style="font-size:13px;color:var(--text-2);line-height:1.6;">TaskFlow is a free task management and diagram tool — organize work, collaborate with your team, and visualize your data flow.</p>
       </div>
 
       <div class="auth-feature">
-        <div class="auth-feature-icon">📋</div>
+        <div class="auth-feature-icon" aria-hidden="true">📋</div>
         <div>
-          <div class="auth-feature-title">Kanban Board</div>
-          <div class="auth-feature-desc">Visualize tasks with drag-and-drop kanban columns: Todo, In Progress, Done.</div>
+          <h2 class="auth-feature-title">Kanban Board</h2>
+          <p class="auth-feature-desc">Visualize tasks with drag-and-drop kanban columns: Todo, In Progress, Done.</p>
         </div>
       </div>
 
       <div class="auth-feature">
-        <div class="auth-feature-icon">👥</div>
+        <div class="auth-feature-icon" aria-hidden="true">👥</div>
         <div>
-          <div class="auth-feature-title">Team Collaboration</div>
-          <div class="auth-feature-desc">Invite team members via email link. Assign tasks and track ownership.</div>
+          <h2 class="auth-feature-title">Team Collaboration</h2>
+          <p class="auth-feature-desc">Invite team members via shareable link. Assign tasks and track ownership.</p>
         </div>
       </div>
 
       <div class="auth-feature">
-        <div class="auth-feature-icon">🗺️</div>
+        <div class="auth-feature-icon" aria-hidden="true">🗺️</div>
         <div>
-          <div class="auth-feature-title">Diagram Builder</div>
-          <div class="auth-feature-desc">Build ER diagrams and flowcharts with a visual drag-and-drop editor.</div>
+          <h2 class="auth-feature-title">ER Diagram & Flowchart Builder</h2>
+          <p class="auth-feature-desc">Build ER diagrams and flowcharts with a visual drag-and-drop editor. Share via link.</p>
         </div>
       </div>
 
       <div class="auth-feature">
-        <div class="auth-feature-icon">⚡</div>
+        <div class="auth-feature-icon" aria-hidden="true">⚡</div>
         <div>
-          <div class="auth-feature-title">Real-time Sync</div>
-          <div class="auth-feature-desc">Changes appear instantly across all team members' screens.</div>
+          <h2 class="auth-feature-title">Free — No Account Required</h2>
+          <p class="auth-feature-desc">Start immediately as a guest. Create a free account to save and share with your team.</p>
         </div>
       </div>
     </div>

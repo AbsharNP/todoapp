@@ -193,20 +193,10 @@ function renderWsList() {
 }
 
 async function autoCreateWorkspace(name) {
-  // owner_id is set by the DB trigger — don't send it from the client
-  const { data: ws, error } = await supabase.from('workspaces')
-    .insert({ name })
-    .select().single();
+  const { data: ws, error } = await supabase.rpc('create_workspace', { ws_name: name });
   if (error || !ws) {
     APP.toast('Workspace error: ' + (error?.message || 'unknown'), 'error');
     openModal('modal-new-workspace');
-    return;
-  }
-  const { error: memErr } = await supabase.from('workspace_members').insert({
-    workspace_id: ws.id, user_id: APP.currentUser.id, role: 'owner'
-  });
-  if (memErr) {
-    APP.toast('Membership error: ' + memErr.message, 'error');
     return;
   }
   workspaces = [ws];
@@ -217,18 +207,12 @@ async function createWorkspace() {
   const name = $('#new-ws-name').val().trim();
   if (!name) return APP.toast('Please enter a workspace name', 'warning');
 
-  const { data: ws, error } = await supabase
-    .from('workspaces')
-    .insert({ name, description: $('#new-ws-desc').val().trim() })
-    .select().single();
-
-  if (error) return APP.toast('Failed to create workspace', 'error');
-
-  await supabase.from('workspace_members').insert({
-    workspace_id: ws.id,
-    user_id: APP.currentUser.id,
-    role: 'owner'
+  const { data: ws, error } = await supabase.rpc('create_workspace', {
+    ws_name: name,
+    ws_description: $('#new-ws-desc').val().trim() || null
   });
+
+  if (error || !ws) return APP.toast('Failed to create workspace: ' + (error?.message || 'unknown'), 'error');
 
   workspaces.push(ws);
   closeModal('modal-new-workspace');

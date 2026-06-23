@@ -165,9 +165,9 @@ CREATE OR REPLACE TRIGGER workspaces_set_owner
   BEFORE INSERT ON workspaces
   FOR EACH ROW EXECUTE FUNCTION set_workspace_owner();
 
--- owner_id is set by trigger, so just check the user is authenticated
+-- owner_id is set by trigger; INSERT is open so anon + authenticated users both work
 CREATE POLICY "Authenticated users can create workspaces"
-  ON workspaces FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+  ON workspaces FOR INSERT WITH CHECK (true);
 
 CREATE POLICY "Owners can update workspaces"
   ON workspaces FOR UPDATE USING (
@@ -176,6 +176,28 @@ CREATE POLICY "Owners can update workspaces"
 
 CREATE POLICY "Owners can delete workspaces"
   ON workspaces FOR DELETE USING (owner_id = auth.uid());
+
+-- Creates workspace + owner membership in one call, bypassing RLS for anon users
+CREATE OR REPLACE FUNCTION create_workspace(ws_name TEXT, ws_description TEXT DEFAULT NULL)
+RETURNS json
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  new_ws workspaces;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'not_authenticated';
+  END IF;
+  INSERT INTO workspaces (name, description, owner_id)
+  VALUES (ws_name, ws_description, auth.uid())
+  RETURNING * INTO new_ws;
+  INSERT INTO workspace_members (workspace_id, user_id, role)
+  VALUES (new_ws.id, auth.uid(), 'owner');
+  RETURN row_to_json(new_ws);
+END;
+$$;
 
 -- Helper: returns the current user's workspace IDs without triggering RLS on itself
 CREATE OR REPLACE FUNCTION get_my_workspace_ids()

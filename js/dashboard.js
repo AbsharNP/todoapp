@@ -106,7 +106,12 @@ $(document).ready(async function () {
 
 // ── Profile ──────────────────────────────────────────────────
 async function loadProfile(user) {
-  const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+  let { data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
+  if (!data) {
+    // Profile row missing — create it (upsert is safe if trigger already created it)
+    await supabase.from('profiles').upsert({ id: user.id, display_name: null }, { onConflict: 'id' });
+    ({ data } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle());
+  }
   return data;
 }
 
@@ -138,7 +143,8 @@ async function loadWorkspaces() {
     .eq('workspace_members.user_id', APP.currentUser.id)
     .order('created_at', { ascending: true });
 
-  if (error || !data) return;
+  if (error) { APP.toast('Failed to load workspaces: ' + error.message, 'error'); return; }
+  if (!data) return;
   workspaces = data;
 
   if (workspaces.length === 0) {
@@ -187,13 +193,22 @@ function renderWsList() {
 }
 
 async function autoCreateWorkspace(name) {
+  // owner_id is set by the DB trigger — don't send it from the client
   const { data: ws, error } = await supabase.from('workspaces')
-    .insert({ name, owner_id: APP.currentUser.id })
+    .insert({ name })
     .select().single();
-  if (error || !ws) { openModal('modal-new-workspace'); return; }
-  await supabase.from('workspace_members').insert({
+  if (error || !ws) {
+    APP.toast('Workspace error: ' + (error?.message || 'unknown'), 'error');
+    openModal('modal-new-workspace');
+    return;
+  }
+  const { error: memErr } = await supabase.from('workspace_members').insert({
     workspace_id: ws.id, user_id: APP.currentUser.id, role: 'owner'
   });
+  if (memErr) {
+    APP.toast('Membership error: ' + memErr.message, 'error');
+    return;
+  }
   workspaces = [ws];
   selectWorkspace(ws.id);
 }
@@ -204,7 +219,7 @@ async function createWorkspace() {
 
   const { data: ws, error } = await supabase
     .from('workspaces')
-    .insert({ name, description: $('#new-ws-desc').val().trim(), owner_id: APP.currentUser.id })
+    .insert({ name, description: $('#new-ws-desc').val().trim() })
     .select().single();
 
   if (error) return APP.toast('Failed to create workspace', 'error');
@@ -298,7 +313,7 @@ function renderListOptions() {
 async function createList() {
   const name = $('#new-list-name').val().trim();
   if (!name) return APP.toast('List name is required', 'warning');
-  if (!currentWsId) return;
+  if (!currentWsId) return APP.toast('No workspace selected', 'error');
 
   const { data, error } = await supabase.from('todo_lists')
     .insert({ workspace_id: currentWsId, name, color: selectedColor, created_by: APP.currentUser.id, position: allLists.length })
@@ -636,7 +651,7 @@ async function renderDiagrams() {
 }
 
 async function createDiagram(type) {
-  if (!currentWsId) return;
+  if (!currentWsId) return APP.toast('No workspace selected', 'error');
   const name = prompt(`Name for this ${type === 'er' ? 'ER Diagram' : 'Flowchart'}:`, type === 'er' ? 'Database Schema' : 'My Flow');
   if (!name) return;
 

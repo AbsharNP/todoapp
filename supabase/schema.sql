@@ -153,8 +153,21 @@ CREATE POLICY "Members can view workspaces"
     id IN (SELECT workspace_id FROM workspace_members WHERE user_id = auth.uid())
   );
 
+CREATE OR REPLACE FUNCTION set_workspace_owner()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.owner_id = auth.uid();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER workspaces_set_owner
+  BEFORE INSERT ON workspaces
+  FOR EACH ROW EXECUTE FUNCTION set_workspace_owner();
+
+-- owner_id is set by trigger, so just check the user is authenticated
 CREATE POLICY "Authenticated users can create workspaces"
-  ON workspaces FOR INSERT WITH CHECK (auth.uid() = owner_id);
+  ON workspaces FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
 
 CREATE POLICY "Owners can update workspaces"
   ON workspaces FOR UPDATE USING (
@@ -164,10 +177,21 @@ CREATE POLICY "Owners can update workspaces"
 CREATE POLICY "Owners can delete workspaces"
   ON workspaces FOR DELETE USING (owner_id = auth.uid());
 
+-- Helper: returns the current user's workspace IDs without triggering RLS on itself
+CREATE OR REPLACE FUNCTION get_my_workspace_ids()
+RETURNS SETOF uuid
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+SET search_path = public
+AS $$
+  SELECT workspace_id FROM workspace_members WHERE user_id = auth.uid();
+$$;
+
 -- Workspace Members
 CREATE POLICY "Members can view workspace membership"
   ON workspace_members FOR SELECT USING (
-    workspace_id IN (SELECT workspace_id FROM workspace_members WHERE user_id = auth.uid())
+    workspace_id IN (SELECT get_my_workspace_ids())
   );
 
 CREATE POLICY "Owners/admins can manage members"

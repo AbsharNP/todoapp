@@ -124,11 +124,9 @@ function renderUserInfo(user, profile) {
   $('#user-email-display').text(isGuest ? 'Guest account' : user.email);
 
   if (isGuest) {
-    $('#user-dropdown').prepend(`
-      <a href="index.html" class="dropdown-item" style="color:var(--accent);border-bottom:1px solid var(--border);margin-bottom:4px;padding-bottom:8px">
-        <span>👤</span> Sign In / Create Account
-      </a>
-    `);
+    $('#btn-logout').html('<span>👤</span> Sign In / Create Account');
+  } else {
+    $('#btn-logout').html('<span>🚪</span> Sign Out');
   }
 }
 

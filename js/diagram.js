@@ -40,7 +40,7 @@ const NODE_DEFAULTS = {
 };
 
 $(document).ready(async function () {
-  await APP.init();
+  const session = await APP.init();
 
   const params = new URLSearchParams(window.location.search);
   diagramId = params.get('id');
@@ -51,7 +51,33 @@ $(document).ready(async function () {
   initPalette();
   initToolbar();
   initKeyboard();
+  initUserMenu(session);
 });
+
+function initUserMenu(session) {
+  const user = session?.user;
+  if (!user) return;
+
+  const isGuest = user.is_anonymous;
+  const name = isGuest ? 'Guest' : (user.email?.split('@')[0] || 'User');
+  const initials = name.slice(0, 2).toUpperCase();
+
+  $('#diagram-user-avatar').text(initials);
+  $('#diagram-user-name').text(name);
+  $('#diagram-user-email').text(isGuest ? 'Guest account' : user.email);
+  $('#btn-diagram-logout').html(isGuest ? '<span>👤</span> Sign In / Create Account' : '<span>🚪</span> Sign Out');
+
+  $('#diagram-user-btn').on('click', function (e) {
+    e.stopPropagation();
+    $('#diagram-user-dropdown').toggleClass('open');
+  });
+  $(document).on('click', function () { $('#diagram-user-dropdown').removeClass('open'); });
+
+  $('#btn-diagram-logout').on('click', async function () {
+    await supabase.auth.signOut();
+    window.location.href = 'index.html';
+  });
+}
 
 // ── Load / Save ───────────────────────────────────────────────
 async function loadDiagram() {
@@ -89,11 +115,46 @@ async function saveDiagram() {
   const name = $('#diagram-name').val().trim() || 'Untitled';
   const { error } = await supabase.from('diagrams').update({
     name,
+    type: diagramType,
     data: { nodes, edges }
   }).eq('id', diagramId);
 
   if (error) { APP.toast('Save failed', 'error'); return; }
   APP.toast('Saved!', 'success');
+}
+
+async function switchDiagramType() {
+  const newType = diagramType === 'flowchart' ? 'er' : 'flowchart';
+  diagramType = newType;
+  const label = newType === 'er' ? 'ER DIAGRAM' : 'FLOWCHART';
+  $('#diagram-type-badge').text(label);
+  if (newType === 'er') {
+    $('#palette-flowchart').hide();
+    $('#palette-er').show();
+  } else {
+    $('#palette-er').hide();
+    $('#palette-flowchart').show();
+  }
+  scheduleSave();
+}
+
+async function shareDiagram() {
+  const $btn = $('#btn-share');
+  $btn.text('Sharing...').prop('disabled', true);
+  const { error } = await supabase.from('diagrams').update({ is_public: true }).eq('id', diagramId);
+  if (error) {
+    APP.toast('Could not share: ' + error.message, 'error');
+    $btn.text('Share Link').prop('disabled', false);
+    return;
+  }
+  const url = window.location.origin + window.location.pathname + '?id=' + diagramId;
+  try {
+    await navigator.clipboard.writeText(url);
+    APP.toast('Share link copied to clipboard!', 'success');
+  } catch {
+    prompt('Copy this link:', url);
+  }
+  $btn.text('Shared ✓').prop('disabled', false);
 }
 
 function scheduleSave() {
@@ -157,7 +218,14 @@ function initCanvas() {
     }
     if (drawingEdge) {
       const pos = svgPos(e);
-      $('#temp-edge').attr({ x2: pos.x, y2: pos.y });
+      const fp = drawingEdge.fromPos;
+      const mag = Math.max(Math.abs(pos.x - fp.x) * 0.5, Math.abs(pos.y - fp.y) * 0.5, 50);
+      let c1x = fp.x, c1y = fp.y;
+      if      (drawingEdge.fromPort === 'e') c1x = fp.x + mag;
+      else if (drawingEdge.fromPort === 'w') c1x = fp.x - mag;
+      else if (drawingEdge.fromPort === 'n') c1y = fp.y - mag;
+      else if (drawingEdge.fromPort === 's') c1y = fp.y + mag;
+      $('#temp-edge').attr('d', `M ${fp.x} ${fp.y} C ${c1x} ${c1y}, ${pos.x} ${pos.y}, ${pos.x} ${pos.y}`);
     }
   });
 
@@ -167,6 +235,10 @@ function initCanvas() {
       isDragging = false;
       dragNode = null;
       scheduleSave();
+      return;
+    }
+    if (drawingEdge && !$(e.target).closest('.node-group').length) {
+      cancelEdgeDrawing();
     }
   });
 
@@ -237,9 +309,13 @@ function initToolbar() {
   $('#btn-save-diagram').on('click', saveDiagram);
   $('#diagram-name').on('input', scheduleSave);
 
-  // Export
+  // Export / Share
   $('#btn-export').on('click', exportSVG);
   $('#btn-export-json').on('click', exportDiagramJson);
+  $('#btn-share').on('click', shareDiagram);
+
+  // Toggle diagram type (Flowchart ↔ ER)
+  $('#diagram-type-badge').on('click', switchDiagramType);
 }
 
 function setTool(t) {
@@ -501,8 +577,8 @@ function bindNodeEvents(g, node) {
       if (tool === 'connect' || tool === 'select') {
         const portDir = $(e.target).data('port');
         const portPos = getPortPos(node, portDir);
-        drawingEdge = { fromId: node.id, fromPort: portDir };
-        $('#temp-edge').attr({ x1: portPos.x, y1: portPos.y, x2: portPos.x, y2: portPos.y }).show();
+        drawingEdge = { fromId: node.id, fromPort: portDir, fromPos: portPos };
+        $('#temp-edge').attr('d', `M ${portPos.x} ${portPos.y}`).show();
         e.preventDefault();
         return;
       }
@@ -552,13 +628,14 @@ function bindNodeEvents(g, node) {
 
 // ── Edge Drawing ──────────────────────────────────────────────
 function completeEdge(toId, toPort) {
-  cancelEdgeDrawing();
   if (!drawingEdge) return;
+  const pending = drawingEdge;
+  cancelEdgeDrawing();
 
   const edge = {
     id: 'e' + nextId++,
-    from: drawingEdge.fromId,
-    fromPort: drawingEdge.fromPort,
+    from: pending.fromId,
+    fromPort: pending.fromPort,
     to: toId,
     toPort: toPort,
     label: '',
@@ -566,7 +643,6 @@ function completeEdge(toId, toPort) {
   };
   edges.push(edge);
   renderEdge(edge);
-  drawingEdge = null;
   scheduleSave();
 }
 
@@ -587,10 +663,21 @@ function renderEdge(edge) {
   const fp = getPortPos(fromNode, edge.fromPort || 'e');
   const tp = getPortPos(toNode, edge.toPort || 'w');
 
-  // Bezier control points
-  const dx = Math.abs(tp.x - fp.x) * 0.5;
-  const c1x = fp.x + dx, c1y = fp.y;
-  const c2x = tp.x - dx, c2y = tp.y;
+  // Bezier control points — follow port direction so arrow orient="auto" works correctly
+  const mag = Math.max(Math.abs(tp.x - fp.x) * 0.5, Math.abs(tp.y - fp.y) * 0.5, 50);
+  let c1x = fp.x, c1y = fp.y;
+  const fromPort = edge.fromPort || 'e';
+  if      (fromPort === 'e') c1x = fp.x + mag;
+  else if (fromPort === 'w') c1x = fp.x - mag;
+  else if (fromPort === 'n') c1y = fp.y - mag;
+  else if (fromPort === 's') c1y = fp.y + mag;
+
+  let c2x = tp.x, c2y = tp.y;
+  const toPort = edge.toPort || 'w';
+  if      (toPort === 'w') c2x = tp.x - mag;
+  else if (toPort === 'e') c2x = tp.x + mag;
+  else if (toPort === 'n') c2y = tp.y - mag;
+  else if (toPort === 's') c2y = tp.y + mag;
 
   const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
   path.setAttribute('id', edge.id);

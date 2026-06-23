@@ -295,14 +295,32 @@ CREATE POLICY "Workspace members can manage todos"
   );
 
 -- Diagrams
-CREATE POLICY "Workspace members can view diagrams"
+-- Add public sharing column (run once)
+ALTER TABLE diagrams ADD COLUMN IF NOT EXISTS is_public BOOLEAN DEFAULT false;
+
+DROP POLICY IF EXISTS "Workspace members can view diagrams" ON diagrams;
+DROP POLICY IF EXISTS "Workspace members can manage diagrams" ON diagrams;
+
+CREATE POLICY "Members or public can view diagrams"
   ON diagrams FOR SELECT USING (
-    workspace_id IN (SELECT workspace_id FROM workspace_members WHERE user_id = auth.uid())
+    workspace_id IN (SELECT get_my_workspace_ids())
+    OR is_public = true
   );
 
-CREATE POLICY "Workspace members can manage diagrams"
-  ON diagrams FOR ALL USING (
-    workspace_id IN (SELECT workspace_id FROM workspace_members WHERE user_id = auth.uid())
+CREATE POLICY "Members can create diagrams"
+  ON diagrams FOR INSERT WITH CHECK (
+    workspace_id IN (SELECT get_my_workspace_ids())
+  );
+
+CREATE POLICY "Members or public can edit diagrams"
+  ON diagrams FOR UPDATE USING (
+    workspace_id IN (SELECT get_my_workspace_ids())
+    OR is_public = true
+  );
+
+CREATE POLICY "Members can delete diagrams"
+  ON diagrams FOR DELETE USING (
+    workspace_id IN (SELECT get_my_workspace_ids())
   );
 
 -- ── Indexes ───────────────────────────────────────────────────

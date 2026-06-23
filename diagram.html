@@ -15,7 +15,7 @@
       <a href="dashboard.html" class="btn btn-ghost btn-sm" style="gap:6px">← Back</a>
       <div class="divider" style="width:1px;height:20px;margin:0 4px"></div>
       <input type="text" id="diagram-name" class="diagram-name-input" placeholder="Untitled Diagram">
-      <span class="diagram-type-badge" id="diagram-type-badge">FLOWCHART</span>
+      <button class="diagram-type-badge" id="diagram-type-badge" title="Click to switch diagram type">FLOWCHART</button>
     </div>
 
     <div class="diagram-header-center">
@@ -44,6 +44,17 @@
     </div>
 
     <div class="diagram-header-right">
+      <div class="dropdown" style="position:relative">
+        <button class="btn btn-ghost btn-sm" id="diagram-user-btn" style="gap:6px">
+          <div class="avatar" id="diagram-user-avatar" style="width:22px;height:22px;background:var(--accent);font-size:10px;font-weight:700;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center">?</div>
+          <span id="diagram-user-name">...</span> ▾
+        </button>
+        <div class="dropdown-menu" id="diagram-user-dropdown" style="right:0;left:auto;min-width:180px">
+          <div style="padding:8px 12px 6px;font-size:11px;color:var(--text-muted);border-bottom:1px solid var(--border);margin-bottom:4px" id="diagram-user-email"></div>
+          <button class="dropdown-item" id="btn-diagram-logout"></button>
+        </div>
+      </div>
+      <button class="btn btn-ghost btn-sm" id="btn-share">Share Link</button>
       <button class="btn btn-ghost btn-sm" id="btn-export-json">Export JSON</button>
       <button class="btn btn-ghost btn-sm" id="btn-export">Export SVG</button>
       <button class="btn btn-primary btn-sm" id="btn-save-diagram">
@@ -143,9 +154,8 @@
         <g id="diagram-layer">
           <g id="edges-layer"></g>
           <g id="nodes-layer"></g>
+          <path id="temp-edge" style="display:none" fill="none" stroke="#7c6af0" stroke-width="2" stroke-dasharray="6,3" marker-end="url(#arrow-selected)"/>
         </g>
-        <!-- Temp edge while drawing -->
-        <line id="temp-edge" style="display:none" stroke="#7c6af0" stroke-width="2" stroke-dasharray="6,3" marker-end="url(#arrow-selected)"/>
       </svg>
 
       <!-- Context menu -->

@@ -49,7 +49,10 @@
   background: var(--accent-light);
   color: var(--accent);
   border: 1px solid rgba(124,106,240,0.2);
+  cursor: pointer;
+  transition: background 0.15s;
 }
+.diagram-type-badge:hover { background: rgba(124,106,240,0.2); }
 
 /* ── Tool buttons ──────────────────────────────────────────── */
 .tool-group {

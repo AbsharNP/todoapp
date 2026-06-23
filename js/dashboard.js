@@ -1,0 +1,789 @@
+// ─────────────────────────────────────────────────────────────
+// Dashboard – Todos, Overview, Diagrams, Settings
+// ─────────────────────────────────────────────────────────────
+
+let allTodos = [];
+let allLists = [];
+let allMembers = [];
+let selectedListId = 'all';
+let selectedColor = '#6366f1';
+
+$(document).ready(async function () {
+  const session = await APP.init();
+  if (!session) { window.location.href = 'index.html'; return; }
+
+  // Render user info
+  const profile = await loadProfile(session.user);
+  renderUserInfo(session.user, profile);
+
+  // Load workspaces
+  await loadWorkspaces();
+
+  // Panel navigation
+  $('.nav-item[data-panel], .btn[data-panel]').on('click', function () {
+    const panel = $(this).data('panel');
+    switchPanel(panel);
+  });
+
+  // Workspace switcher
+  $('#ws-switcher').on('click', function (e) {
+    e.stopPropagation();
+    $('#ws-dropdown').toggleClass('open');
+  });
+  $(document).on('click', function () {
+    $('#ws-dropdown').removeClass('open');
+    $('.dropdown-menu').removeClass('open');
+  });
+
+  // User menu
+  $('#user-menu-btn').on('click', function (e) {
+    e.stopPropagation();
+    $('#user-dropdown').toggleClass('open');
+  });
+  $('#btn-logout').on('click', async function () {
+    await supabase.auth.signOut();
+    window.location.href = 'index.html';
+  });
+
+  // New workspace
+  $('#btn-new-workspace').on('click', () => openModal('modal-new-workspace'));
+  $('#btn-create-workspace').on('click', createWorkspace);
+
+  // List CRUD
+  $('#btn-new-list').on('click', () => {
+    selectedColor = '#6366f1';
+    $('.color-swatch').removeClass('selected');
+    $(`.color-swatch[data-color="#6366f1"]`).addClass('selected');
+    $('#new-list-name').val('');
+    openModal('modal-new-list');
+  });
+  $('#btn-create-list').on('click', createList);
+
+  // Color picker
+  $(document).on('click', '.color-swatch', function () {
+    selectedColor = $(this).data('color');
+    $('.color-swatch').removeClass('selected');
+    $(this).addClass('selected');
+  });
+
+  // Todo CRUD
+  $('#btn-new-todo, .kanban-col-add').on('click', function () {
+    const status = $(this).data('status') || 'todo';
+    openNewTodoModal(status);
+  });
+  $('#btn-create-todo').on('click', createTodo);
+  $('#btn-save-todo').on('click', saveTodoDetail);
+  $('#btn-delete-todo').on('click', deleteTodo);
+
+  // Diagrams
+  $('#btn-new-flowchart').on('click', () => createDiagram('flowchart'));
+  $('#btn-new-er').on('click', () => createDiagram('er'));
+  $('#btn-import-diagram').on('click', () => $('#input-import-diagram').click());
+  $('#input-import-diagram').on('change', function () {
+    if (this.files[0]) { importDiagram(this.files[0]); this.value = ''; }
+  });
+
+  // Todos export/import
+  $('#btn-export-todos').on('click', exportTodos);
+  $('#btn-import-todos').on('click', () => $('#input-import-todos').click());
+  $('#input-import-todos').on('change', function () {
+    if (this.files[0]) { importTodos(this.files[0]); this.value = ''; }
+  });
+
+  // Settings
+  $('#btn-save-workspace').on('click', saveWorkspaceSettings);
+  $('#btn-delete-workspace').on('click', deleteWorkspace);
+
+  // Modal close
+  $(document).on('click', '[data-close]', function () {
+    const id = $(this).data('close');
+    closeModal(id);
+  });
+  $(document).on('click', '.modal-backdrop', function (e) {
+    if ($(e.target).is('.modal-backdrop')) closeModal($(this).attr('id'));
+  });
+});
+
+// ── Profile ──────────────────────────────────────────────────
+async function loadProfile(user) {
+  const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+  return data;
+}
+
+function renderUserInfo(user, profile) {
+  const isGuest = user.is_anonymous;
+  const name = profile?.display_name || (isGuest ? 'Guest' : (user.email?.split('@')[0] || 'User'));
+  const initials = name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
+  $('#user-avatar').text(initials);
+  $('#user-display-name').text(name);
+  $('#user-email-display').text(isGuest ? 'Guest account' : user.email);
+
+  if (isGuest) {
+    $('#user-dropdown').prepend(`
+      <a href="index.html" class="dropdown-item" style="color:var(--accent);border-bottom:1px solid var(--border);margin-bottom:4px;padding-bottom:8px">
+        <span>👤</span> Sign In / Create Account
+      </a>
+    `);
+  }
+}
+
+// ── Workspaces ───────────────────────────────────────────────
+let workspaces = [];
+let currentWsId = null;
+
+async function loadWorkspaces() {
+  const { data, error } = await supabase
+    .from('workspaces')
+    .select(`*, workspace_members!inner(user_id)`)
+    .eq('workspace_members.user_id', APP.currentUser.id)
+    .order('created_at', { ascending: true });
+
+  if (error || !data) return;
+  workspaces = data;
+
+  if (workspaces.length === 0) {
+    if (APP.isGuest()) {
+      await autoCreateWorkspace('My Workspace');
+      return;
+    }
+    openModal('modal-new-workspace');
+    return;
+  }
+
+  const savedId = localStorage.getItem('taskflow_ws');
+  const ws = workspaces.find(w => w.id === savedId) || workspaces[0];
+  selectWorkspace(ws.id);
+}
+
+function selectWorkspace(wsId) {
+  currentWsId = wsId;
+  APP.currentWorkspace = workspaces.find(w => w.id === wsId);
+  localStorage.setItem('taskflow_ws', wsId);
+
+  const ws = APP.currentWorkspace;
+  $('#ws-icon').text((ws.name || 'W')[0].toUpperCase());
+  $('#ws-name').text(ws.name);
+  $('#ws-name-input').val(ws.name);
+  $('#ws-desc-input').val(ws.description || '');
+
+  renderWsList();
+  loadAllData();
+}
+
+function renderWsList() {
+  const html = workspaces.map(ws => `
+    <div class="ws-item ${ws.id === currentWsId ? 'active' : ''}" data-ws="${ws.id}">
+      <div class="workspace-icon" style="width:20px;height:20px;font-size:11px">${(ws.name||'W')[0].toUpperCase()}</div>
+      ${ws.name}
+      ${ws.id === currentWsId ? '<span style="margin-left:auto;color:var(--accent)">✓</span>' : ''}
+    </div>
+  `).join('');
+  $('#ws-list').html(html);
+
+  $('#ws-list').off('click').on('click', '.ws-item', function () {
+    selectWorkspace($(this).data('ws'));
+    $('#ws-dropdown').removeClass('open');
+  });
+}
+
+async function autoCreateWorkspace(name) {
+  const { data: ws, error } = await supabase.from('workspaces')
+    .insert({ name, owner_id: APP.currentUser.id })
+    .select().single();
+  if (error || !ws) { openModal('modal-new-workspace'); return; }
+  await supabase.from('workspace_members').insert({
+    workspace_id: ws.id, user_id: APP.currentUser.id, role: 'owner'
+  });
+  workspaces = [ws];
+  selectWorkspace(ws.id);
+}
+
+async function createWorkspace() {
+  const name = $('#new-ws-name').val().trim();
+  if (!name) return APP.toast('Please enter a workspace name', 'warning');
+
+  const { data: ws, error } = await supabase
+    .from('workspaces')
+    .insert({ name, description: $('#new-ws-desc').val().trim(), owner_id: APP.currentUser.id })
+    .select().single();
+
+  if (error) return APP.toast('Failed to create workspace', 'error');
+
+  await supabase.from('workspace_members').insert({
+    workspace_id: ws.id,
+    user_id: APP.currentUser.id,
+    role: 'owner'
+  });
+
+  workspaces.push(ws);
+  closeModal('modal-new-workspace');
+  $('#new-ws-name').val('');
+  $('#new-ws-desc').val('');
+  selectWorkspace(ws.id);
+  APP.toast('Workspace created!', 'success');
+}
+
+async function saveWorkspaceSettings() {
+  const name = $('#ws-name-input').val().trim();
+  if (!name) return APP.toast('Name is required', 'warning');
+
+  const { error } = await supabase.from('workspaces')
+    .update({ name, description: $('#ws-desc-input').val().trim() })
+    .eq('id', currentWsId);
+
+  if (error) return APP.toast('Failed to save', 'error');
+  const ws = workspaces.find(w => w.id === currentWsId);
+  if (ws) { ws.name = name; ws.description = $('#ws-desc-input').val().trim(); }
+  $('#ws-name').text(name);
+  APP.toast('Settings saved!', 'success');
+}
+
+async function deleteWorkspace() {
+  if (!confirm('Delete this workspace and all its data? This cannot be undone.')) return;
+  await supabase.from('workspaces').delete().eq('id', currentWsId);
+  workspaces = workspaces.filter(w => w.id !== currentWsId);
+  if (workspaces.length > 0) {
+    selectWorkspace(workspaces[0].id);
+  } else {
+    currentWsId = null;
+    openModal('modal-new-workspace');
+  }
+  APP.toast('Workspace deleted', 'info');
+}
+
+// ── Load all workspace data ───────────────────────────────────
+async function loadAllData() {
+  await Promise.all([loadLists(), loadMembers()]);
+  await loadTodos();
+  renderOverview();
+  renderDiagrams();
+}
+
+// ── Lists ─────────────────────────────────────────────────────
+async function loadLists() {
+  const { data } = await supabase
+    .from('todo_lists')
+    .select('*')
+    .eq('workspace_id', currentWsId)
+    .order('position');
+  allLists = data || [];
+  renderListSelector();
+  renderListOptions();
+}
+
+function renderListSelector() {
+  const chips = `<button class="list-chip ${selectedListId === 'all' ? 'active' : ''}" data-list="all">All Lists</button>`
+    + allLists.map(l => `
+      <button class="list-chip ${selectedListId === l.id ? 'active' : ''}"
+              data-list="${l.id}"
+              style="${selectedListId === l.id ? `background:${l.color};border-color:${l.color}` : ''}">
+        <span class="list-dot" style="background:${l.color}"></span>
+        ${l.name}
+      </button>
+    `).join('');
+
+  $('#list-selector').html(chips);
+  $('#list-selector .list-chip').on('click', function () {
+    selectedListId = $(this).data('list');
+    renderListSelector();
+    renderKanban();
+  });
+}
+
+function renderListOptions() {
+  const opts = allLists.map(l => `<option value="${l.id}">${l.name}</option>`).join('');
+  $('#todo-list, #detail-list').html(opts || '<option value="">No lists – create one first</option>');
+}
+
+async function createList() {
+  const name = $('#new-list-name').val().trim();
+  if (!name) return APP.toast('List name is required', 'warning');
+  if (!currentWsId) return;
+
+  const { data, error } = await supabase.from('todo_lists')
+    .insert({ workspace_id: currentWsId, name, color: selectedColor, created_by: APP.currentUser.id, position: allLists.length })
+    .select().single();
+
+  if (error) return APP.toast('Failed to create list', 'error');
+  allLists.push(data);
+  closeModal('modal-new-list');
+  $('#new-list-name').val('');
+  renderListSelector();
+  renderListOptions();
+  APP.toast(`List "${name}" created!`, 'success');
+}
+
+// ── Members ───────────────────────────────────────────────────
+async function loadMembers() {
+  const { data } = await supabase
+    .from('workspace_members')
+    .select('*, profiles(*)')
+    .eq('workspace_id', currentWsId);
+  allMembers = data || [];
+  renderMembers();
+  renderAssigneeOptions();
+}
+
+function renderMembers() {
+  if (!allMembers.length) {
+    $('#members-list, #overview-team').html('<div class="empty-state"><p>No members yet. Invite your team!</p></div>');
+    return;
+  }
+
+  const html = allMembers.map(m => {
+    const name = m.profiles?.display_name || 'Unknown';
+    const email = APP.currentUser.id === m.user_id ? APP.currentUser.email : '';
+    const initials = name.split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase();
+    const colors = ['#6366f1','#8b5cf6','#ec4899','#f59e0b','#10b981','#3b82f6'];
+    const color = colors[name.charCodeAt(0) % colors.length];
+    return `
+      <div class="member-card">
+        <div class="avatar" style="width:40px;height:40px;background:${color};font-size:15px;font-weight:700;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center">${initials}</div>
+        <div class="member-info">
+          <div class="member-name">${name}</div>
+          <div class="member-email">${email}</div>
+        </div>
+        <span class="member-role role-${m.role}">${m.role}</span>
+      </div>
+    `;
+  }).join('');
+
+  $('#members-list').html(html);
+  $('#overview-team').html(allMembers.slice(0,4).map(m => {
+    const name = m.profiles?.display_name || 'Unknown';
+    const initials = name.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
+    const colors = ['#6366f1','#8b5cf6','#ec4899','#f59e0b','#10b981','#3b82f6'];
+    const color = colors[name.charCodeAt(0) % colors.length];
+    return `
+      <div class="member-card">
+        <div class="avatar" style="width:36px;height:36px;background:${color};font-size:13px;font-weight:700;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center">${initials}</div>
+        <div class="member-info"><div class="member-name">${name}</div></div>
+        <span class="member-role role-${m.role}">${m.role}</span>
+      </div>
+    `;
+  }).join(''));
+}
+
+function renderAssigneeOptions() {
+  const opts = allMembers.map(m => `<option value="${m.user_id}">${m.profiles?.display_name || 'Unknown'}</option>`).join('');
+  $('#todo-assignee, #detail-assignee').append(opts);
+}
+
+// ── Todos ─────────────────────────────────────────────────────
+async function loadTodos() {
+  if (!allLists.length) { allTodos = []; renderKanban(); return; }
+
+  const listIds = allLists.map(l => l.id);
+  const { data } = await supabase
+    .from('todos')
+    .select('*')
+    .in('list_id', listIds)
+    .order('position');
+  allTodos = data || [];
+  renderKanban();
+}
+
+function getFilteredTodos() {
+  if (selectedListId === 'all') return allTodos;
+  return allTodos.filter(t => t.list_id === selectedListId);
+}
+
+function renderKanban() {
+  const filtered = getFilteredTodos();
+  const byStatus = {
+    todo: filtered.filter(t => t.status === 'todo'),
+    in_progress: filtered.filter(t => t.status === 'in_progress'),
+    done: filtered.filter(t => t.status === 'done')
+  };
+
+  ['todo', 'in_progress', 'done'].forEach(status => {
+    const items = byStatus[status];
+    $(`#count-${status}`).text(items.length);
+    $(`#col-${status}`).html(items.map(renderTaskCard).join('') || '');
+  });
+
+  const pending = filtered.filter(t => t.status !== 'done').length;
+  if (pending > 0) $('#badge-todos').text(pending).show();
+  else $('#badge-todos').hide();
+
+  // Re-bind card clicks
+  $('.task-card').off('click').on('click', function (e) {
+    if ($(e.target).hasClass('task-check') || $(e.target).closest('.task-check').length) return;
+    const id = $(this).data('id');
+    openTodoDetail(id);
+  });
+
+  // Quick status toggle (checkbox)
+  $('.task-check').off('click').on('click', function (e) {
+    e.stopPropagation();
+    const $card = $(this).closest('.task-card');
+    const id = $card.data('id');
+    const todo = allTodos.find(t => t.id === id);
+    if (!todo) return;
+    const newStatus = todo.status === 'done' ? 'todo' : 'done';
+    updateTodoStatus(id, newStatus);
+  });
+}
+
+function renderTaskCard(todo) {
+  const list = allLists.find(l => l.id === todo.list_id);
+  const isOverdue = APP.isOverdue(todo.due_date) && todo.status !== 'done';
+  const isDone = todo.status === 'done';
+  const assignee = allMembers.find(m => m.user_id === todo.assigned_to);
+  const assigneeName = assignee?.profiles?.display_name;
+
+  return `
+    <div class="task-card" data-id="${todo.id}">
+      <div class="task-card-priority ${todo.priority}"></div>
+      <div class="task-card-header">
+        <div class="task-check ${isDone ? 'checked' : ''}"></div>
+        <div class="task-card-title ${isDone ? 'done-text' : ''}">${escHtml(todo.title)}</div>
+      </div>
+      <div class="task-card-meta">
+        <span class="badge badge-${todo.priority}">${todo.priority}</span>
+        ${todo.due_date ? `<span class="task-due ${isOverdue ? 'overdue' : ''}">📅 ${APP.formatDate(todo.due_date)}</span>` : ''}
+      </div>
+      <div class="task-card-footer">
+        ${list ? `<span class="task-list-badge" style="background:${list.color}">${escHtml(list.name)}</span>` : '<span></span>'}
+        ${assigneeName ? `<span style="font-size:11px;color:var(--text-3)">→ ${escHtml(assigneeName)}</span>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+async function updateTodoStatus(id, status) {
+  const todo = allTodos.find(t => t.id === id);
+  if (todo) todo.status = status;
+  renderKanban();
+  await supabase.from('todos').update({ status }).eq('id', id);
+}
+
+function openNewTodoModal(status = 'todo') {
+  if (!allLists.length) {
+    APP.toast('Create a list first before adding tasks', 'warning');
+    openModal('modal-new-list');
+    return;
+  }
+  $('#todo-title').val('');
+  $('#todo-desc').val('');
+  $('#todo-status').val(status);
+  $('#todo-priority').val('medium');
+  $('#todo-due').val('');
+  $('#todo-assignee').val('');
+  if (selectedListId !== 'all') $('#todo-list').val(selectedListId);
+  openModal('modal-new-todo');
+}
+
+async function createTodo() {
+  const title = $('#todo-title').val().trim();
+  if (!title) return APP.toast('Task title is required', 'warning');
+  const listId = $('#todo-list').val();
+  if (!listId) return APP.toast('Select a list', 'warning');
+
+  const todo = {
+    list_id: listId,
+    title,
+    description: $('#todo-desc').val().trim() || null,
+    status: $('#todo-status').val(),
+    priority: $('#todo-priority').val(),
+    due_date: $('#todo-due').val() || null,
+    assigned_to: $('#todo-assignee').val() || null,
+    created_by: APP.currentUser.id,
+    position: allTodos.length
+  };
+
+  const { data, error } = await supabase.from('todos').insert(todo).select().single();
+  if (error) return APP.toast('Failed to add task', 'error');
+  allTodos.push(data);
+  closeModal('modal-new-todo');
+  renderKanban();
+  renderOverview();
+  APP.toast('Task added!', 'success');
+}
+
+function openTodoDetail(id) {
+  const todo = allTodos.find(t => t.id === id);
+  if (!todo) return;
+
+  $('#detail-todo-id').val(todo.id);
+  $('#detail-title').val(todo.title);
+  $('#detail-desc').val(todo.description || '');
+  $('#detail-status').val(todo.status);
+  $('#detail-priority').val(todo.priority);
+  $('#detail-due').val(todo.due_date || '');
+  $('#detail-assignee').val(todo.assigned_to || '');
+  openModal('modal-todo-detail');
+}
+
+async function saveTodoDetail() {
+  const id = $('#detail-todo-id').val();
+  const updates = {
+    title: $('#detail-title').val().trim(),
+    description: $('#detail-desc').val().trim() || null,
+    status: $('#detail-status').val(),
+    priority: $('#detail-priority').val(),
+    due_date: $('#detail-due').val() || null,
+    assigned_to: $('#detail-assignee').val() || null
+  };
+  if (!updates.title) return APP.toast('Title is required', 'warning');
+
+  const { error } = await supabase.from('todos').update(updates).eq('id', id);
+  if (error) return APP.toast('Failed to save', 'error');
+
+  const idx = allTodos.findIndex(t => t.id === id);
+  if (idx !== -1) allTodos[idx] = { ...allTodos[idx], ...updates };
+  closeModal('modal-todo-detail');
+  renderKanban();
+  renderOverview();
+  APP.toast('Task updated!', 'success');
+}
+
+async function deleteTodo() {
+  const id = $('#detail-todo-id').val();
+  if (!confirm('Delete this task?')) return;
+  await supabase.from('todos').delete().eq('id', id);
+  allTodos = allTodos.filter(t => t.id !== id);
+  closeModal('modal-todo-detail');
+  renderKanban();
+  renderOverview();
+  APP.toast('Task deleted', 'info');
+}
+
+// ── Overview ──────────────────────────────────────────────────
+function renderOverview() {
+  const total = allTodos.length;
+  const inProgress = allTodos.filter(t => t.status === 'in_progress').length;
+  const done = allTodos.filter(t => t.status === 'done').length;
+  const overdue = allTodos.filter(t => APP.isOverdue(t.due_date) && t.status !== 'done').length;
+
+  $('#stat-total').text(total);
+  $('#stat-in-progress').text(inProgress);
+  $('#stat-done').text(done);
+  $('#stat-overdue').text(overdue);
+
+  const recent = allTodos.slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 5);
+  if (!recent.length) {
+    $('#overview-recent').html('<div class="empty-state"><p>No tasks yet. Add your first task!</p></div>');
+    return;
+  }
+  $('#overview-recent').html(`
+    <div class="card" style="padding:0;overflow:hidden">
+      ${recent.map(t => {
+        const list = allLists.find(l => l.id === t.list_id);
+        return `
+          <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer" data-id="${t.id}" class="overview-todo-row">
+            <div style="width:3px;height:36px;background:${list?.color || '#6366f1'};border-radius:2px;flex-shrink:0"></div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:500;${t.status === 'done' ? 'text-decoration:line-through;color:var(--text-3)' : ''}">${escHtml(t.title)}</div>
+              ${t.due_date ? `<div style="font-size:11px;color:${APP.isOverdue(t.due_date) && t.status !== 'done' ? 'var(--red)' : 'var(--text-3)'}">${APP.formatDate(t.due_date)}</div>` : ''}
+            </div>
+            <span class="badge badge-${t.priority}">${t.priority}</span>
+            <span class="badge badge-${t.status}">${t.status.replace('_',' ')}</span>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `);
+
+  $('.overview-todo-row').on('click', function () {
+    openTodoDetail($(this).data('id'));
+  });
+}
+
+// ── Diagrams ──────────────────────────────────────────────────
+async function renderDiagrams() {
+  const { data } = await supabase
+    .from('diagrams')
+    .select('*')
+    .eq('workspace_id', currentWsId)
+    .order('updated_at', { ascending: false });
+
+  const diagrams = data || [];
+
+  if (!diagrams.length) {
+    $('#diagrams-grid').html(`
+      <div class="empty-state" style="grid-column:1/-1">
+        <div style="font-size:48px">🗺️</div>
+        <h4>No diagrams yet</h4>
+        <p>Create a flowchart or ER diagram to visualize your system.</p>
+      </div>
+    `);
+    return;
+  }
+
+  const icons = { flowchart: '📊', er: '🗄️' };
+  $('#diagrams-grid').html(diagrams.map(d => `
+    <div class="diagram-card" data-diagram-id="${d.id}">
+      <div class="diagram-preview">${icons[d.type] || '📊'}</div>
+      <div class="diagram-card-body">
+        <div class="diagram-card-name">${escHtml(d.name)}</div>
+        <div class="diagram-card-meta">${d.type.toUpperCase()} · ${APP.formatDate(d.updated_at)}</div>
+      </div>
+      <button class="btn btn-ghost btn-sm diagram-export-btn" data-id="${d.id}" data-name="${escHtml(d.name)}" title="Export as JSON" style="margin:0 8px 8px auto;display:block;font-size:11px">↓ Export</button>
+    </div>
+  `).join(''));
+
+  $('.diagram-card').on('click', function (e) {
+    if ($(e.target).closest('.diagram-export-btn').length) return;
+    const id = $(this).data('diagram-id');
+    window.location.href = `diagram.html?id=${id}`;
+  });
+
+  $('.diagram-export-btn').on('click', function (e) {
+    e.stopPropagation();
+    exportDiagramFromDashboard($(this).data('id'), $(this).data('name'));
+  });
+}
+
+async function createDiagram(type) {
+  if (!currentWsId) return;
+  const name = prompt(`Name for this ${type === 'er' ? 'ER Diagram' : 'Flowchart'}:`, type === 'er' ? 'Database Schema' : 'My Flow');
+  if (!name) return;
+
+  const { data, error } = await supabase.from('diagrams')
+    .insert({ workspace_id: currentWsId, name, type, created_by: APP.currentUser.id })
+    .select().single();
+
+  if (error) return APP.toast('Failed to create diagram', 'error');
+  window.location.href = `diagram.html?id=${data.id}`;
+}
+
+// ── Panel switching ───────────────────────────────────────────
+function switchPanel(name) {
+  $('.panel').removeClass('active');
+  $(`#panel-${name}`).addClass('active');
+  $('.nav-item').removeClass('active');
+  $(`.nav-item[data-panel="${name}"]`).addClass('active');
+
+  const titles = {
+    overview: 'Overview', todos: 'Tasks',
+    diagrams: 'Diagrams', team: 'Team', settings: 'Settings'
+  };
+  $('#panel-title').text(titles[name] || name);
+
+  if (name === 'team') {
+    if (APP.isGuest()) {
+      $('#panel-team').html(`
+        <div class="empty-state" style="padding:60px 0">
+          <div style="font-size:48px;margin-bottom:12px">👥</div>
+          <h4 style="margin-bottom:8px">Team features require an account</h4>
+          <p style="color:var(--text-2);margin-bottom:20px">Sign in or create a free account to invite members and collaborate.</p>
+          <a href="index.html" class="btn btn-primary">Sign In / Create Account</a>
+        </div>
+      `);
+      return;
+    }
+    TEAM.loadInvites();
+  }
+}
+
+// ── Modal helpers ─────────────────────────────────────────────
+function openModal(id) { $(`#${id}`).addClass('open'); }
+function closeModal(id) { $(`#${id}`).removeClass('open'); }
+
+// ── Export / Import ───────────────────────────────────────────
+function downloadJson(data, filename) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportTodos() {
+  if (!allLists.length) return APP.toast('No tasks to export', 'warning');
+  const data = {
+    taskflow_todos: true,
+    version: 1,
+    lists: allLists.map(l => ({
+      name: l.name,
+      color: l.color,
+      todos: allTodos.filter(t => t.list_id === l.id).map(t => ({
+        title: t.title,
+        description: t.description || null,
+        status: t.status,
+        priority: t.priority,
+        due_date: t.due_date || null,
+        tags: t.tags || []
+      }))
+    }))
+  };
+  downloadJson(data, 'tasks-export.json');
+  APP.toast('Tasks exported!', 'success');
+}
+
+async function importTodos(file) {
+  const text = await file.text();
+  let data;
+  try { data = JSON.parse(text); } catch { return APP.toast('Invalid JSON file', 'error'); }
+  if (!data.taskflow_todos) return APP.toast('Not a TaskFlow tasks export', 'error');
+  if (!currentWsId) return APP.toast('Select a workspace first', 'warning');
+
+  let imported = 0;
+  for (const list of (data.lists || [])) {
+    const { data: newList, error } = await supabase.from('todo_lists')
+      .insert({ workspace_id: currentWsId, name: list.name, color: list.color || '#6366f1', created_by: APP.currentUser.id, position: allLists.length + imported })
+      .select().single();
+    if (error) continue;
+    for (const todo of (list.todos || [])) {
+      await supabase.from('todos').insert({
+        list_id: newList.id,
+        title: todo.title,
+        description: todo.description || null,
+        status: todo.status || 'todo',
+        priority: todo.priority || 'medium',
+        due_date: todo.due_date || null,
+        tags: todo.tags || [],
+        created_by: APP.currentUser.id,
+        position: 0
+      });
+    }
+    imported++;
+  }
+  await loadAllData();
+  APP.toast(`Imported ${imported} list(s)!`, 'success');
+}
+
+async function exportDiagramFromDashboard(id, name) {
+  const { data, error } = await supabase.from('diagrams').select('*').eq('id', id).single();
+  if (error || !data) return APP.toast('Could not load diagram', 'error');
+  const exportData = {
+    taskflow_diagram: true,
+    version: 1,
+    name: data.name,
+    type: data.type,
+    nodes: (data.data || {}).nodes || [],
+    edges: (data.data || {}).edges || []
+  };
+  downloadJson(exportData, (data.name || 'diagram').replace(/\s+/g, '_') + '.json');
+  APP.toast('Diagram exported!', 'success');
+}
+
+async function importDiagram(file) {
+  const text = await file.text();
+  let data;
+  try { data = JSON.parse(text); } catch { return APP.toast('Invalid JSON file', 'error'); }
+  if (!data.taskflow_diagram) return APP.toast('Not a TaskFlow diagram export', 'error');
+  if (!currentWsId) return APP.toast('Select a workspace first', 'warning');
+
+  const { data: newDiagram, error } = await supabase.from('diagrams')
+    .insert({
+      workspace_id: currentWsId,
+      name: data.name || 'Imported Diagram',
+      type: data.type || 'flowchart',
+      data: { nodes: data.nodes || [], edges: data.edges || [] },
+      created_by: APP.currentUser.id
+    })
+    .select().single();
+
+  if (error) return APP.toast('Import failed', 'error');
+  APP.toast('Diagram imported!', 'success');
+  window.location.href = `diagram.html?id=${newDiagram.id}`;
+}
+
+// ── Utils ─────────────────────────────────────────────────────
+function escHtml(str) {
+  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}

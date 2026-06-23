@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TaskFlow – Login</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="auth-page">
+  <div class="auth-glow auth-glow-1"></div>
+  <div class="auth-glow auth-glow-2"></div>
+
+  <div class="auth-container">
+    <!-- Left: Form -->
+    <div class="auth-left">
+      <div class="auth-logo">
+        <div class="logo-icon">⚡</div>
+        <span class="logo-name">TaskFlow</span>
+      </div>
+
+      <div id="auth-message"></div>
+
+      <div class="auth-tabs">
+        <button class="auth-tab active" data-tab="login">Sign In</button>
+        <button class="auth-tab" data-tab="signup">Sign Up</button>
+      </div>
+
+      <!-- Login Form -->
+      <div class="auth-form-panel active" id="panel-login">
+        <h2 class="auth-title">Welcome back</h2>
+        <p class="auth-subtitle">Sign in to continue to your workspace</p>
+        <form id="login-form" class="auth-form">
+          <div class="form-group">
+            <label class="form-label">Email Address</label>
+            <input type="email" id="login-email" class="input" placeholder="you@example.com" required autocomplete="email">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Password</label>
+            <input type="password" id="login-password" class="input" placeholder="••••••••" required autocomplete="current-password">
+          </div>
+          <div id="login-error" class="error-msg" style="display:none"></div>
+          <button type="submit" class="btn btn-primary btn-block btn-lg" id="login-btn">
+            Sign In
+          </button>
+        </form>
+      </div>
+
+      <div style="text-align:center;margin-top:4px">
+        <span style="font-size:12px;color:var(--text-3)">or</span>
+        <button type="button" class="btn btn-ghost btn-block" id="btn-guest" style="margin-top:6px;font-size:13px">
+          Continue without account →
+        </button>
+      </div>
+
+      <!-- Signup Form -->
+      <div class="auth-form-panel" id="panel-signup">
+        <h2 class="auth-title">Create account</h2>
+        <p class="auth-subtitle">Get started with your team for free</p>
+        <form id="signup-form" class="auth-form">
+          <div class="form-group">
+            <label class="form-label">Full Name</label>
+            <input type="text" id="signup-name" class="input" placeholder="Jane Smith" required autocomplete="name">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Email Address</label>
+            <input type="email" id="signup-email" class="input" placeholder="you@example.com" required autocomplete="email">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Password</label>
+            <input type="password" id="signup-password" class="input" placeholder="Minimum 6 characters" required autocomplete="new-password" minlength="6">
+          </div>
+          <div id="signup-error" class="error-msg" style="display:none"></div>
+          <button type="submit" class="btn btn-primary btn-block btn-lg" id="signup-btn">
+            Create Account
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Right: Features -->
+    <div class="auth-right">
+      <div>
+        <h3 style="font-size:17px;font-weight:700;margin-bottom:6px;">Everything your team needs</h3>
+        <p style="font-size:13px;color:var(--text-2);line-height:1.6;">Organize tasks, collaborate with your team, and visualize your data flow.</p>
+      </div>
+
+      <div class="auth-feature">
+        <div class="auth-feature-icon">📋</div>
+        <div>
+          <div class="auth-feature-title">Kanban Board</div>
+          <div class="auth-feature-desc">Visualize tasks with drag-and-drop kanban columns: Todo, In Progress, Done.</div>
+        </div>
+      </div>
+
+      <div class="auth-feature">
+        <div class="auth-feature-icon">👥</div>
+        <div>
+          <div class="auth-feature-title">Team Collaboration</div>
+          <div class="auth-feature-desc">Invite team members via email link. Assign tasks and track ownership.</div>
+        </div>
+      </div>
+
+      <div class="auth-feature">
+        <div class="auth-feature-icon">🗺️</div>
+        <div>
+          <div class="auth-feature-title">Diagram Builder</div>
+          <div class="auth-feature-desc">Build ER diagrams and flowcharts with a visual drag-and-drop editor.</div>
+        </div>
+      </div>
+
+      <div class="auth-feature">
+        <div class="auth-feature-icon">⚡</div>
+        <div>
+          <div class="auth-feature-title">Real-time Sync</div>
+          <div class="auth-feature-desc">Changes appear instantly across all team members' screens.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    .error-msg {
+      background: var(--red-bg);
+      color: var(--red);
+      border: 1px solid rgba(248,113,113,0.2);
+      border-radius: var(--radius);
+      padding: 10px 14px;
+      font-size: 13px;
+    }
+    .btn-loading { opacity: 0.7; pointer-events: none; }
+    #auth-message {
+      background: var(--green-bg);
+      color: var(--green);
+      border: 1px solid rgba(34,211,160,0.2);
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      font-size: 13px;
+      margin-bottom: 16px;
+      display: none;
+    }
+  </style>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/auth.js"></script>
+</body>
+</html>

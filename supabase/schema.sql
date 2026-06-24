@@ -423,3 +423,54 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   GRANT ALL ON ROUTINES  TO anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
+
+-- ── Fix 1: workspace_members → profiles foreign key ──────────
+-- Backfill any profiles missing for existing users
+INSERT INTO profiles (id, display_name)
+SELECT id, split_part(email, '@', 1)
+FROM auth.users
+WHERE id NOT IN (SELECT id FROM profiles)
+ON CONFLICT (id) DO NOTHING;
+
+-- Add FK so PostgREST can resolve workspace_members -> profiles
+ALTER TABLE workspace_members
+  DROP CONSTRAINT IF EXISTS fk_workspace_members_profiles,
+  ADD CONSTRAINT fk_workspace_members_profiles
+    FOREIGN KEY (user_id) REFERENCES profiles(id) ON DELETE CASCADE;
+
+-- ── Fix 2: join code columns ──────────────────────────────────
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS join_code TEXT UNIQUE;
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS join_code_expires_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_workspaces_join_code ON workspaces(join_code);
+
+-- ── Fix 3: workspace UPDATE policy (allow admins to set join_code) ─
+CREATE OR REPLACE FUNCTION is_ws_admin(ws_id UUID)
+RETURNS BOOLEAN LANGUAGE sql SECURITY DEFINER STABLE
+SET search_path = public SET row_security = off AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM workspace_members
+    WHERE workspace_id = ws_id AND user_id = auth.uid() AND role IN ('owner','admin')
+  );
+$$;
+
+DROP POLICY IF EXISTS "Owners can update workspaces" ON workspaces;
+CREATE POLICY "Owners can update workspaces"
+  ON workspaces FOR UPDATE USING (is_ws_admin(id));
+
+-- ── Fix 4: join_code lookup RPC ───────────────────────────────
+DROP POLICY IF EXISTS "Find workspace by join_code" ON workspaces;
+CREATE POLICY "Find workspace by join_code"
+  ON workspaces FOR SELECT USING (join_code IS NOT NULL AND auth.uid() IS NOT NULL);
+
+CREATE OR REPLACE FUNCTION get_workspace_by_join_code(code TEXT)
+RETURNS json LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE result json;
+BEGIN
+  SELECT to_json(r) INTO result FROM (
+    SELECT id, name FROM workspaces
+    WHERE join_code = upper(code)
+      AND (join_code_expires_at IS NULL OR join_code_expires_at > NOW())
+    LIMIT 1
+  ) r;
+  RETURN result;
+END; $$;

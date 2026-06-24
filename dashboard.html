@@ -42,6 +42,9 @@
         <button class="ws-item" id="btn-new-workspace" data-tooltip="Create a new workspace">
           <span>＋</span> New Workspace
         </button>
+        <button class="ws-item" id="btn-join-workspace" data-tooltip="Join a workspace with a team code">
+          <span>🔗</span> Join Workspace
+        </button>
       </div>
     </div>
 
@@ -219,6 +222,14 @@
           <h3 class="section-title" style="font-size:14px">Pending Invites</h3>
         </div>
         <div id="invites-list" class="team-grid"></div>
+
+        <div class="section-header" style="margin-top:28px">
+          <h3 class="section-title" style="font-size:14px">Team Join Code</h3>
+          <button class="btn btn-secondary btn-sm" id="btn-regen-join-code" data-tooltip="Generate a shareable 6-character code">Generate Code</button>
+        </div>
+        <div id="join-code-section">
+          <p style="font-size:12px;color:var(--text-3)">No join code yet. Generate one so teammates can join without an email invite.</p>
+        </div>
       </div>
 
       <!-- ── Settings Panel ──────────────────────────────────── -->
@@ -457,6 +468,29 @@
     <div class="modal-footer">
       <button class="btn btn-ghost" data-close="modal-invite">Close</button>
       <button class="btn btn-primary" id="btn-send-invite" data-tooltip="Generate a shareable invite link">Generate Invite Link</button>
+    </div>
+  </div>
+</div>
+
+<!-- Join Workspace by Code -->
+<div class="modal-backdrop" id="modal-join-workspace">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Join a Workspace</h3>
+      <button class="modal-close" data-close="modal-join-workspace" data-tooltip="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--text-2);margin-bottom:16px">Enter the 6-character code shared by your team admin.</p>
+      <div class="form-group">
+        <label class="form-label">Team Join Code</label>
+        <input type="text" class="input" id="join-ws-code-input" placeholder="ABC123" maxlength="6"
+          style="text-transform:uppercase;letter-spacing:6px;font-size:22px;text-align:center;font-weight:700">
+      </div>
+      <div id="join-ws-feedback" style="display:none;font-size:13px;padding:6px 0;color:var(--red)"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" data-close="modal-join-workspace">Cancel</button>
+      <button class="btn btn-primary" id="btn-submit-join-ws">Join Workspace</button>
     </div>
   </div>
 </div>

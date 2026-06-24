@@ -671,6 +671,7 @@ function switchPanel(name) {
       return;
     }
     TEAM.loadInvites();
+    TEAM.loadJoinCode();
   }
 }
 

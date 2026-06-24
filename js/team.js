@@ -3,6 +3,43 @@
 // ─────────────────────────────────────────────────────────────
 
 const TEAM = {
+  async loadJoinCode() {
+    if (!currentWsId) return;
+    const { data: ws } = await supabase
+      .from('workspaces')
+      .select('join_code')
+      .eq('id', currentWsId)
+      .single();
+
+    const code = ws?.join_code;
+    if (!code) {
+      $('#join-code-section').html(
+        `<p style="font-size:12px;color:var(--text-3)">No join code yet. Generate one so teammates can join without an email invite.</p>`
+      );
+      return;
+    }
+
+    $('#join-code-section').html(`
+      <div class="invite-link-box" style="align-items:center;gap:12px">
+        <span style="font-size:22px;font-weight:700;letter-spacing:6px;color:var(--accent);font-family:monospace">${escHtml(code)}</span>
+        <div style="display:flex;gap:6px;flex-shrink:0">
+          <button class="btn btn-secondary btn-sm" id="btn-copy-join-code">Copy</button>
+        </div>
+      </div>
+      <p style="font-size:11px;color:var(--text-3);margin-top:6px">
+        Share this code with teammates — they can enter it in "Join Workspace" to join instantly.
+      </p>
+    `);
+
+    $('#btn-copy-join-code').on('click', function () {
+      navigator.clipboard.writeText(code).then(() => {
+        $(this).text('Copied!');
+        setTimeout(() => $(this).text('Copy'), 2000);
+        APP.toast('Join code copied!', 'success');
+      });
+    });
+  },
+
   async loadInvites() {
     if (!currentWsId) return;
     const { data } = await supabase
@@ -96,6 +133,84 @@ $(document).ready(function () {
     $('#btn-send-invite').hide();
     TEAM.loadInvites();
     APP.toast('Invite link generated!', 'success');
+  });
+
+  // Generate workspace join code
+  $('#btn-regen-join-code').on('click', async function () {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let code = '';
+    for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+
+    const { error } = await supabase
+      .from('workspaces')
+      .update({ join_code: code })
+      .eq('id', currentWsId);
+
+    if (error) { APP.toast('Failed to generate code', 'error'); return; }
+    APP.toast('Join code generated!', 'success');
+    TEAM.loadJoinCode();
+  });
+
+  // Open join-by-code modal
+  $('#btn-join-workspace').on('click', function () {
+    if (APP.isGuest()) { APP.toast('Sign in to join a workspace', 'warning'); return; }
+    $('#join-ws-code-input').val('');
+    $('#join-ws-feedback').hide();
+    openModal('modal-join-workspace');
+  });
+
+  // Submit join-by-code
+  $('#btn-submit-join-ws').on('click', async function () {
+    const code = $('#join-ws-code-input').val().trim().toUpperCase();
+    if (code.length !== 6) {
+      $('#join-ws-feedback').text('Please enter a 6-character code.').show();
+      return;
+    }
+
+    $(this).text('Joining…').prop('disabled', true);
+    $('#join-ws-feedback').hide();
+
+    const { data: ws, error } = await supabase
+      .from('workspaces')
+      .select('id, name')
+      .eq('join_code', code)
+      .maybeSingle();
+
+    if (error || !ws) {
+      $('#join-ws-feedback').text('No workspace found with that code. Check and try again.').show();
+      $(this).text('Join Workspace').prop('disabled', false);
+      return;
+    }
+
+    const { data: existing } = await supabase
+      .from('workspace_members')
+      .select('id')
+      .eq('workspace_id', ws.id)
+      .eq('user_id', APP.currentUser.id)
+      .maybeSingle();
+
+    if (existing) {
+      APP.toast(`You're already in "${ws.name}"`, 'info');
+      closeModal('modal-join-workspace');
+      $(this).text('Join Workspace').prop('disabled', false);
+      return;
+    }
+
+    const { error: memberErr } = await supabase
+      .from('workspace_members')
+      .insert({ workspace_id: ws.id, user_id: APP.currentUser.id, role: 'member' });
+
+    if (memberErr) {
+      $('#join-ws-feedback').text('Failed to join. Please try again.').show();
+      $(this).text('Join Workspace').prop('disabled', false);
+      return;
+    }
+
+    APP.toast(`Joined "${ws.name}"!`, 'success');
+    closeModal('modal-join-workspace');
+    $(this).text('Join Workspace').prop('disabled', false);
+    localStorage.setItem('taskflow_ws', ws.id);
+    window.location.reload();
   });
 
   // Copy invite link

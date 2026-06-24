@@ -236,7 +236,7 @@ CREATE POLICY "Owners/admins can remove members"
 CREATE POLICY "Members/invitees can view invites"
   ON invites FOR SELECT USING (
     workspace_id IN (SELECT workspace_id FROM workspace_members WHERE user_id = auth.uid())
-    OR email = (SELECT email FROM auth.users WHERE id = auth.uid())
+    OR email = auth.email()
   );
 
 CREATE POLICY "Admins can create invites"
@@ -253,7 +253,7 @@ CREATE POLICY "Admins and invitees can update invites"
       SELECT workspace_id FROM workspace_members
       WHERE user_id = auth.uid() AND role IN ('owner', 'admin')
     )
-    OR email = (SELECT email FROM auth.users WHERE id = auth.uid())
+    OR email = auth.email()
   );
 
 CREATE POLICY "Admins can delete invites"
@@ -331,3 +331,58 @@ CREATE INDEX idx_todo_lists_workspace ON todo_lists(workspace_id);
 CREATE INDEX idx_invites_token ON invites(token);
 CREATE INDEX idx_invites_email ON invites(email);
 CREATE INDEX idx_diagrams_workspace ON diagrams(workspace_id);
+
+-- ── Team Join Code ─────────────────────────────────────────────
+
+-- Short 6-char code anyone can use to join a workspace
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS join_code TEXT UNIQUE;
+CREATE INDEX IF NOT EXISTS idx_workspaces_join_code ON workspaces(join_code);
+
+-- Authenticated users can find a workspace by its join code
+CREATE POLICY "Find workspace by join_code"
+  ON workspaces FOR SELECT USING (
+    join_code IS NOT NULL AND auth.uid() IS NOT NULL
+  );
+
+-- RPC: look up an invite by token without requiring membership
+-- (the token itself is the shared secret)
+CREATE OR REPLACE FUNCTION get_invite_by_token(invite_token TEXT)
+RETURNS json
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE result json;
+BEGIN
+  SELECT to_json(r) INTO result
+  FROM (
+    SELECT i.id, i.email, i.role, i.status, i.expires_at, i.workspace_id,
+           w.name AS workspace_name
+    FROM invites i
+    JOIN workspaces w ON w.id = i.workspace_id
+    WHERE i.token = invite_token
+    LIMIT 1
+  ) r;
+  RETURN result;
+END;
+$$;
+
+-- RPC: look up a workspace by join code (used by invite.html before auth)
+CREATE OR REPLACE FUNCTION get_workspace_by_join_code(code TEXT)
+RETURNS json
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE result json;
+BEGIN
+  SELECT to_json(r) INTO result
+  FROM (
+    SELECT id, name
+    FROM workspaces
+    WHERE join_code = upper(code)
+    LIMIT 1
+  ) r;
+  RETURN result;
+END;
+$$;

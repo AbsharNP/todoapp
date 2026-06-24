@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Join Team – TaskFlow</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="auth-page">
+  <div class="auth-glow auth-glow-1"></div>
+  <div class="auth-glow auth-glow-2"></div>
+
+  <div id="invite-wrap">
+
+    <!-- Loading -->
+    <div id="state-loading" class="invite-card">
+      <div class="invite-logo">
+        <div class="logo-icon">⚡</div>
+        <span class="logo-name">TaskFlow</span>
+      </div>
+      <p class="invite-sub">Loading invite…</p>
+    </div>
+
+    <!-- Error -->
+    <div id="state-error" class="invite-card" style="display:none">
+      <div class="invite-logo">
+        <div class="logo-icon">⚡</div>
+        <span class="logo-name">TaskFlow</span>
+      </div>
+      <div style="text-align:center;margin-top:8px">
+        <div style="font-size:36px;margin-bottom:10px">❌</div>
+        <h2 id="err-title" style="font-size:17px;margin-bottom:6px">Invalid Invite</h2>
+        <p id="err-msg" style="font-size:13px;color:var(--text-2)">This invite link is invalid or has expired.</p>
+        <a href="index.html" class="btn btn-primary" style="margin-top:20px;display:inline-flex">Go to TaskFlow →</a>
+      </div>
+    </div>
+
+    <!-- Auth (need to sign in first) -->
+    <div id="state-auth" class="invite-card" style="display:none">
+      <div class="invite-logo">
+        <div class="logo-icon">⚡</div>
+        <span class="logo-name">TaskFlow</span>
+      </div>
+      <div id="auth-ws-badge" class="invite-badge" style="display:none"></div>
+      <h2 style="font-size:16px;text-align:center;margin-bottom:6px">You've been invited!</h2>
+      <p style="font-size:13px;color:var(--text-2);text-align:center;margin-bottom:20px">
+        Sign in or create an account to join <strong id="auth-ws-label">the workspace</strong>.
+      </p>
+
+      <div class="auth-tabs">
+        <button class="auth-tab active" data-tab="login">Sign In</button>
+        <button class="auth-tab" data-tab="signup">Sign Up</button>
+      </div>
+
+      <div class="auth-form-panel active" id="inv-panel-login">
+        <form id="inv-login-form" class="auth-form">
+          <div class="form-group">
+            <label class="form-label">Email</label>
+            <input type="email" id="inv-login-email" class="input" placeholder="you@example.com" autocomplete="email" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Password</label>
+            <input type="password" id="inv-login-password" class="input" placeholder="••••••••" autocomplete="current-password" required>
+          </div>
+          <div id="inv-login-error" class="error-msg" style="display:none"></div>
+          <button type="submit" class="btn btn-primary btn-block" id="inv-login-btn">Sign In &amp; Join</button>
+        </form>
+      </div>
+
+      <div class="auth-form-panel" id="inv-panel-signup">
+        <form id="inv-signup-form" class="auth-form">
+          <div class="form-group">
+            <label class="form-label">Full Name</label>
+            <input type="text" id="inv-signup-name" class="input" placeholder="Jane Smith" autocomplete="name" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Email</label>
+            <input type="email" id="inv-signup-email" class="input" placeholder="you@example.com" autocomplete="email" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Password</label>
+            <input type="password" id="inv-signup-password" class="input" placeholder="Minimum 6 characters" autocomplete="new-password" minlength="6" required>
+          </div>
+          <div id="inv-signup-error" class="error-msg" style="display:none"></div>
+          <button type="submit" class="btn btn-primary btn-block" id="inv-signup-btn">Create Account &amp; Join</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Accept (logged in, ready to confirm) -->
+    <div id="state-accept" class="invite-card" style="display:none">
+      <div class="invite-logo">
+        <div class="logo-icon">⚡</div>
+        <span class="logo-name">TaskFlow</span>
+      </div>
+      <div style="text-align:center;margin-top:8px">
+        <div style="font-size:44px;margin-bottom:10px">👋</div>
+        <h2 style="font-size:18px;margin-bottom:4px">You're invited!</h2>
+        <p style="font-size:13px;color:var(--text-2);margin-bottom:4px">Join workspace</p>
+        <p id="accept-ws-name" style="font-size:22px;font-weight:700;color:var(--accent);margin-bottom:6px"></p>
+        <p id="accept-role-text" style="font-size:12px;color:var(--text-3);margin-bottom:22px"></p>
+        <button class="btn btn-primary btn-block btn-lg" id="btn-accept-invite">Accept &amp; Join Workspace</button>
+        <a href="dashboard.html" class="btn btn-ghost btn-block" style="margin-top:8px">Not now</a>
+      </div>
+    </div>
+
+    <!-- Success -->
+    <div id="state-success" class="invite-card" style="display:none">
+      <div style="text-align:center">
+        <div style="font-size:48px;margin-bottom:10px">🎉</div>
+        <h2 style="font-size:18px;margin-bottom:8px">You're in!</h2>
+        <p id="success-msg" style="font-size:13px;color:var(--text-2);margin-bottom:20px">Redirecting to dashboard…</p>
+        <a href="dashboard.html" class="btn btn-primary">Open Dashboard →</a>
+      </div>
+    </div>
+
+  </div>
+
+  <style>
+    #invite-wrap {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .invite-card {
+      background: var(--bg-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xl);
+      padding: 32px;
+      width: 100%;
+      max-width: 400px;
+      box-shadow: var(--shadow-lg);
+    }
+    .invite-logo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      justify-content: center;
+      margin-bottom: 20px;
+    }
+    .invite-badge {
+      background: var(--accent-light);
+      border: 1px solid rgba(124,106,240,0.2);
+      border-radius: var(--radius-full);
+      padding: 4px 14px;
+      font-size: 13px;
+      color: var(--accent-2);
+      text-align: center;
+      margin: 0 auto 16px;
+      display: block;
+    }
+    .invite-sub { font-size:13px; color:var(--text-2); text-align:center; margin-top:12px; }
+    .error-msg {
+      background: var(--red-bg);
+      color: var(--red);
+      border: 1px solid rgba(248,113,113,0.2);
+      border-radius: var(--radius);
+      padding: 10px 14px;
+      font-size: 13px;
+      margin-bottom: 12px;
+    }
+  </style>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="js/config.js"></script>
+  <script>
+    const params      = new URLSearchParams(window.location.search);
+    const inviteToken = params.get('token');
+    const joinCode    = params.get('code');
+
+    let inviteData   = null;
+    let targetWsId   = null;
+    let targetWsName = null;
+
+    function showState(name) {
+      $('#state-loading,#state-error,#state-auth,#state-accept,#state-success').hide();
+      $(`#state-${name}`).show();
+    }
+
+    function showError(title, msg) {
+      $('#err-title').text(title);
+      $('#err-msg').text(msg);
+      showState('error');
+    }
+
+    async function init() {
+      if (!inviteToken && !joinCode) {
+        return showError('No Invite Found', 'No invite token or join code was found in the URL.');
+      }
+
+      if (inviteToken) {
+        const { data, error } = await supabase.rpc('get_invite_by_token', { invite_token: inviteToken });
+        if (error || !data) return showError('Invalid Invite', 'This invite link is not valid.');
+        if (data.status !== 'pending') return showError('Invite Used', 'This invite has already been accepted or revoked.');
+        if (new Date(data.expires_at) < new Date()) return showError('Invite Expired', 'This invite has expired. Ask your team admin to generate a new one.');
+        inviteData   = data;
+        targetWsId   = data.workspace_id;
+        targetWsName = data.workspace_name;
+      } else {
+        const { data, error } = await supabase.rpc('get_workspace_by_join_code', { code: joinCode.toUpperCase() });
+        if (error || !data) return showError('Invalid Code', `No workspace found with code "${joinCode.toUpperCase()}".`);
+        targetWsId   = data.id;
+        targetWsName = data.name;
+      }
+
+      const { data: { session } } = await supabase.auth.getSession();
+      const isRealUser = session && !session.user.is_anonymous;
+
+      if (!isRealUser) {
+        $('#auth-ws-badge').text(targetWsName).show();
+        $('#auth-ws-label').text(targetWsName);
+        if (inviteData) {
+          $('#inv-login-email').val(inviteData.email);
+          $('#inv-signup-email').val(inviteData.email);
+        }
+        showState('auth');
+      } else {
+        $('#accept-ws-name').text(targetWsName);
+        $('#accept-role-text').text(`You'll join as a ${inviteData ? inviteData.role : 'member'}`);
+        showState('accept');
+      }
+    }
+
+    async function doAccept(userId, userEmail) {
+      if (inviteData && inviteData.email.toLowerCase() !== userEmail.toLowerCase()) {
+        return showError(
+          'Wrong Account',
+          `This invite was sent to ${inviteData.email}. Please sign in with that email address.`
+        );
+      }
+
+      const { data: existing } = await supabase
+        .from('workspace_members')
+        .select('id')
+        .eq('workspace_id', targetWsId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (existing) {
+        localStorage.setItem('taskflow_ws', targetWsId);
+        $('#success-msg').text(`You're already a member of ${targetWsName}!`);
+        showState('success');
+        setTimeout(() => { window.location.href = 'dashboard.html'; }, 1500);
+        return;
+      }
+
+      const role = inviteData ? inviteData.role : 'member';
+      const { error: memberError } = await supabase
+        .from('workspace_members')
+        .insert({ workspace_id: targetWsId, user_id: userId, role });
+
+      if (memberError) return showError('Error', 'Failed to join the workspace. Please try again.');
+
+      if (inviteData) {
+        await supabase.from('invites').update({ status: 'accepted' }).eq('id', inviteData.id);
+      }
+
+      localStorage.setItem('taskflow_ws', targetWsId);
+      $('#success-msg').text(`You've joined ${targetWsName}! Redirecting…`);
+      showState('success');
+      setTimeout(() => { window.location.href = 'dashboard.html'; }, 1500);
+    }
+
+    $(document).ready(function () {
+      init();
+
+      $(document).on('click', '.auth-tab', function () {
+        const tab = $(this).data('tab');
+        $('.auth-tab').removeClass('active');
+        $(this).addClass('active');
+        $('.auth-form-panel').removeClass('active');
+        $(`#inv-panel-${tab}`).addClass('active');
+      });
+
+      $('#inv-login-form').on('submit', async function (e) {
+        e.preventDefault();
+        const email    = $('#inv-login-email').val().trim();
+        const password = $('#inv-login-password').val();
+        $('#inv-login-error').hide();
+        $('#inv-login-btn').text('Signing in…').prop('disabled', true);
+
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) {
+          $('#inv-login-error').text(error.message).show();
+          $('#inv-login-btn').text('Sign In & Join').prop('disabled', false);
+          return;
+        }
+        await doAccept(data.user.id, data.user.email);
+      });
+
+      $('#inv-signup-form').on('submit', async function (e) {
+        e.preventDefault();
+        const name     = $('#inv-signup-name').val().trim();
+        const email    = $('#inv-signup-email').val().trim();
+        const password = $('#inv-signup-password').val();
+        $('#inv-signup-error').hide();
+        $('#inv-signup-btn').text('Creating account…').prop('disabled', true);
+
+        const { data, error } = await supabase.auth.signUp({
+          email, password,
+          options: { data: { full_name: name } }
+        });
+        if (error) {
+          $('#inv-signup-error').text(error.message).show();
+          $('#inv-signup-btn').text('Create Account & Join').prop('disabled', false);
+          return;
+        }
+        await doAccept(data.user.id, data.user.email);
+      });
+
+      $('#btn-accept-invite').on('click', async function () {
+        $(this).text('Joining…').prop('disabled', true);
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) { window.location.href = 'index.html'; return; }
+        await doAccept(session.user.id, session.user.email);
+      });
+    });
+  </script>
+</body>
+</html>

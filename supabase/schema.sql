@@ -1,32 +1,39 @@
 -- ============================================================
--- TaskFlow Database Schema
+-- TaskFlow Database Schema  (idempotent — safe to re-run)
 -- Run this in Supabase SQL Editor
 -- ============================================================
+
+-- ── Schema permissions (required for PostgreSQL 15+) ─────────
+-- PostgreSQL 15 revoked CREATE on public schema from PUBLIC by default.
+-- These grants restore the access Supabase roles need.
+GRANT USAGE  ON SCHEMA public TO postgres, anon, authenticated, service_role;
+GRANT CREATE ON SCHEMA public TO postgres, service_role;
 
 -- Enable extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
--- ── Profiles ────────────────────────────────────────────────
-CREATE TABLE profiles (
+-- ── Tables ───────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS profiles (
   id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
   display_name TEXT,
   avatar_url TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- ── Workspaces ──────────────────────────────────────────────
-CREATE TABLE workspaces (
+CREATE TABLE IF NOT EXISTS workspaces (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   name TEXT NOT NULL,
   description TEXT,
   owner_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  join_code TEXT UNIQUE,
+  join_code_expires_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- ── Workspace Members ────────────────────────────────────────
-CREATE TABLE workspace_members (
+CREATE TABLE IF NOT EXISTS workspace_members (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE NOT NULL,
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
@@ -35,8 +42,7 @@ CREATE TABLE workspace_members (
   UNIQUE(workspace_id, user_id)
 );
 
--- ── Invites ──────────────────────────────────────────────────
-CREATE TABLE invites (
+CREATE TABLE IF NOT EXISTS invites (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE NOT NULL,
   email TEXT NOT NULL,
@@ -48,8 +54,7 @@ CREATE TABLE invites (
   expires_at TIMESTAMPTZ DEFAULT NOW() + INTERVAL '7 days'
 );
 
--- ── Todo Lists ───────────────────────────────────────────────
-CREATE TABLE todo_lists (
+CREATE TABLE IF NOT EXISTS todo_lists (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE NOT NULL,
   name TEXT NOT NULL,
@@ -59,8 +64,7 @@ CREATE TABLE todo_lists (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- ── Todos ────────────────────────────────────────────────────
-CREATE TABLE todos (
+CREATE TABLE IF NOT EXISTS todos (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   list_id UUID REFERENCES todo_lists(id) ON DELETE CASCADE NOT NULL,
   title TEXT NOT NULL,
@@ -76,19 +80,24 @@ CREATE TABLE todos (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- ── Diagrams ─────────────────────────────────────────────────
-CREATE TABLE diagrams (
+CREATE TABLE IF NOT EXISTS diagrams (
   id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE NOT NULL,
   name TEXT NOT NULL,
   type TEXT NOT NULL DEFAULT 'flowchart' CHECK (type IN ('flowchart', 'er')),
   data JSONB NOT NULL DEFAULT '{"nodes":[],"edges":[]}',
+  is_public BOOLEAN DEFAULT false,
   created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- ── Triggers ─────────────────────────────────────────────────
+-- Backfill columns added after initial release
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS join_code TEXT UNIQUE;
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS join_code_expires_at TIMESTAMPTZ;
+ALTER TABLE diagrams   ADD COLUMN IF NOT EXISTS is_public BOOLEAN DEFAULT false;
+
+-- ── Functions & Triggers ─────────────────────────────────────
 
 -- Auto-create profile when user signs up
 CREATE OR REPLACE FUNCTION handle_new_user()
@@ -118,41 +127,15 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER todos_updated_at BEFORE UPDATE ON todos
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+DROP TRIGGER IF EXISTS todos_updated_at      ON todos;
+DROP TRIGGER IF EXISTS workspaces_updated_at ON workspaces;
+DROP TRIGGER IF EXISTS diagrams_updated_at   ON diagrams;
 
-CREATE TRIGGER workspaces_updated_at BEFORE UPDATE ON workspaces
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE TRIGGER todos_updated_at      BEFORE UPDATE ON todos      FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE TRIGGER workspaces_updated_at BEFORE UPDATE ON workspaces FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+CREATE TRIGGER diagrams_updated_at   BEFORE UPDATE ON diagrams   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
-CREATE TRIGGER diagrams_updated_at BEFORE UPDATE ON diagrams
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-
--- ── Row Level Security ────────────────────────────────────────
-
-ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE workspaces ENABLE ROW LEVEL SECURITY;
-ALTER TABLE workspace_members ENABLE ROW LEVEL SECURITY;
-ALTER TABLE invites ENABLE ROW LEVEL SECURITY;
-ALTER TABLE todo_lists ENABLE ROW LEVEL SECURITY;
-ALTER TABLE todos ENABLE ROW LEVEL SECURITY;
-ALTER TABLE diagrams ENABLE ROW LEVEL SECURITY;
-
--- Profiles
-CREATE POLICY "Profiles viewable by authenticated users"
-  ON profiles FOR SELECT USING (auth.uid() IS NOT NULL);
-
-CREATE POLICY "Users can insert own profile"
-  ON profiles FOR INSERT WITH CHECK (auth.uid() = id);
-
-CREATE POLICY "Users can update own profile"
-  ON profiles FOR UPDATE USING (auth.uid() = id);
-
--- Workspaces
-CREATE POLICY "Members can view workspaces"
-  ON workspaces FOR SELECT USING (
-    id IN (SELECT workspace_id FROM workspace_members WHERE user_id = auth.uid())
-  );
-
+-- Set owner_id on workspace insert
 CREATE OR REPLACE FUNCTION set_workspace_owner()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -161,23 +144,54 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE OR REPLACE TRIGGER workspaces_set_owner
+DROP TRIGGER IF EXISTS workspaces_set_owner ON workspaces;
+CREATE TRIGGER workspaces_set_owner
   BEFORE INSERT ON workspaces
   FOR EACH ROW EXECUTE FUNCTION set_workspace_owner();
 
--- owner_id is set by trigger; INSERT is open so anon + authenticated users both work
-CREATE POLICY "Authenticated users can create workspaces"
-  ON workspaces FOR INSERT WITH CHECK (true);
+-- ── Row Level Security ────────────────────────────────────────
 
-CREATE POLICY "Owners can update workspaces"
-  ON workspaces FOR UPDATE USING (
-    id IN (SELECT workspace_id FROM workspace_members WHERE user_id = auth.uid() AND role IN ('owner','admin'))
+ALTER TABLE profiles         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE workspaces       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE workspace_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE invites          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE todo_lists       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE todos            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE diagrams         ENABLE ROW LEVEL SECURITY;
+
+-- ── Helper functions (SECURITY DEFINER + row_security = off) ─
+
+-- Returns workspace IDs the current user belongs to.
+-- row_security = off prevents recursive RLS when called from within policies.
+CREATE OR REPLACE FUNCTION get_my_workspace_ids()
+RETURNS SETOF uuid
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+SET search_path = public
+SET row_security = off
+AS $$
+  SELECT workspace_id FROM workspace_members WHERE user_id = auth.uid();
+$$;
+
+-- Returns true if the current user is an owner or admin of the given workspace.
+CREATE OR REPLACE FUNCTION is_ws_admin(ws_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+SET search_path = public
+SET row_security = off
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM workspace_members
+    WHERE workspace_id = ws_id
+      AND user_id = auth.uid()
+      AND role IN ('owner', 'admin')
   );
+$$;
 
-CREATE POLICY "Owners can delete workspaces"
-  ON workspaces FOR DELETE USING (owner_id = auth.uid());
-
--- Creates workspace + owner membership in one call, bypassing RLS for anon users
+-- Creates workspace + owner membership in one call, bypassing RLS.
 CREATE OR REPLACE FUNCTION create_workspace(ws_name TEXT, ws_description TEXT DEFAULT NULL)
 RETURNS json
 LANGUAGE plpgsql
@@ -185,7 +199,7 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  new_ws workspaces;
+  new_ws RECORD;
 BEGIN
   IF auth.uid() IS NULL THEN
     RAISE EXCEPTION 'not_authenticated';
@@ -199,153 +213,7 @@ BEGIN
 END;
 $$;
 
--- Helper: returns the current user's workspace IDs without triggering RLS on itself
-CREATE OR REPLACE FUNCTION get_my_workspace_ids()
-RETURNS SETOF uuid
-LANGUAGE sql
-SECURITY DEFINER
-STABLE
-SET search_path = public
-AS $$
-  SELECT workspace_id FROM workspace_members WHERE user_id = auth.uid();
-$$;
-
--- Workspace Members
-CREATE POLICY "Members can view workspace membership"
-  ON workspace_members FOR SELECT USING (
-    workspace_id IN (SELECT get_my_workspace_ids())
-  );
-
-CREATE POLICY "Owners/admins can manage members"
-  ON workspace_members FOR INSERT WITH CHECK (
-    workspace_id IN (
-      SELECT workspace_id FROM workspace_members
-      WHERE user_id = auth.uid() AND role IN ('owner', 'admin')
-    ) OR user_id = auth.uid()
-  );
-
-CREATE POLICY "Owners/admins can remove members"
-  ON workspace_members FOR DELETE USING (
-    workspace_id IN (
-      SELECT workspace_id FROM workspace_members
-      WHERE user_id = auth.uid() AND role IN ('owner', 'admin')
-    ) OR user_id = auth.uid()
-  );
-
--- Invites
-CREATE POLICY "Members/invitees can view invites"
-  ON invites FOR SELECT USING (
-    workspace_id IN (SELECT workspace_id FROM workspace_members WHERE user_id = auth.uid())
-    OR email = auth.email()
-  );
-
-CREATE POLICY "Admins can create invites"
-  ON invites FOR INSERT WITH CHECK (
-    workspace_id IN (
-      SELECT workspace_id FROM workspace_members
-      WHERE user_id = auth.uid() AND role IN ('owner', 'admin')
-    )
-  );
-
-CREATE POLICY "Admins and invitees can update invites"
-  ON invites FOR UPDATE USING (
-    workspace_id IN (
-      SELECT workspace_id FROM workspace_members
-      WHERE user_id = auth.uid() AND role IN ('owner', 'admin')
-    )
-    OR email = auth.email()
-  );
-
-CREATE POLICY "Admins can delete invites"
-  ON invites FOR DELETE USING (
-    workspace_id IN (
-      SELECT workspace_id FROM workspace_members
-      WHERE user_id = auth.uid() AND role IN ('owner', 'admin')
-    )
-  );
-
--- Todo Lists
-CREATE POLICY "Workspace members can view todo lists"
-  ON todo_lists FOR SELECT USING (
-    workspace_id IN (SELECT workspace_id FROM workspace_members WHERE user_id = auth.uid())
-  );
-
-CREATE POLICY "Workspace members can manage todo lists"
-  ON todo_lists FOR ALL USING (
-    workspace_id IN (SELECT workspace_id FROM workspace_members WHERE user_id = auth.uid())
-  );
-
--- Todos
-CREATE POLICY "Workspace members can view todos"
-  ON todos FOR SELECT USING (
-    list_id IN (
-      SELECT tl.id FROM todo_lists tl
-      JOIN workspace_members wm ON tl.workspace_id = wm.workspace_id
-      WHERE wm.user_id = auth.uid()
-    )
-  );
-
-CREATE POLICY "Workspace members can manage todos"
-  ON todos FOR ALL USING (
-    list_id IN (
-      SELECT tl.id FROM todo_lists tl
-      JOIN workspace_members wm ON tl.workspace_id = wm.workspace_id
-      WHERE wm.user_id = auth.uid()
-    )
-  );
-
--- Diagrams
--- Add public sharing column (run once)
-ALTER TABLE diagrams ADD COLUMN IF NOT EXISTS is_public BOOLEAN DEFAULT false;
-
-DROP POLICY IF EXISTS "Workspace members can view diagrams" ON diagrams;
-DROP POLICY IF EXISTS "Workspace members can manage diagrams" ON diagrams;
-
-CREATE POLICY "Members or public can view diagrams"
-  ON diagrams FOR SELECT USING (
-    workspace_id IN (SELECT get_my_workspace_ids())
-    OR is_public = true
-  );
-
-CREATE POLICY "Members can create diagrams"
-  ON diagrams FOR INSERT WITH CHECK (
-    workspace_id IN (SELECT get_my_workspace_ids())
-  );
-
-CREATE POLICY "Members or public can edit diagrams"
-  ON diagrams FOR UPDATE USING (
-    workspace_id IN (SELECT get_my_workspace_ids())
-    OR is_public = true
-  );
-
-CREATE POLICY "Members can delete diagrams"
-  ON diagrams FOR DELETE USING (
-    workspace_id IN (SELECT get_my_workspace_ids())
-  );
-
--- ── Indexes ───────────────────────────────────────────────────
-CREATE INDEX idx_workspace_members_user ON workspace_members(user_id);
-CREATE INDEX idx_workspace_members_workspace ON workspace_members(workspace_id);
-CREATE INDEX idx_todos_list ON todos(list_id);
-CREATE INDEX idx_todo_lists_workspace ON todo_lists(workspace_id);
-CREATE INDEX idx_invites_token ON invites(token);
-CREATE INDEX idx_invites_email ON invites(email);
-CREATE INDEX idx_diagrams_workspace ON diagrams(workspace_id);
-
--- ── Team Join Code ─────────────────────────────────────────────
-
--- Short 6-char code anyone can use to join a workspace
-ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS join_code TEXT UNIQUE;
-CREATE INDEX IF NOT EXISTS idx_workspaces_join_code ON workspaces(join_code);
-
--- Authenticated users can find a workspace by its join code
-CREATE POLICY "Find workspace by join_code"
-  ON workspaces FOR SELECT USING (
-    join_code IS NOT NULL AND auth.uid() IS NOT NULL
-  );
-
--- RPC: look up an invite by token without requiring membership
--- (the token itself is the shared secret)
+-- Look up an invite by token without requiring membership (token is the secret).
 CREATE OR REPLACE FUNCTION get_invite_by_token(invite_token TEXT)
 RETURNS json
 LANGUAGE plpgsql
@@ -367,7 +235,8 @@ BEGIN
 END;
 $$;
 
--- RPC: look up a workspace by join code (used by invite.html before auth)
+-- Look up a workspace by its join code (used on invite.html before the user signs in).
+-- Returns NULL if the code doesn't exist or has expired.
 CREATE OR REPLACE FUNCTION get_workspace_by_join_code(code TEXT)
 RETURNS json
 LANGUAGE plpgsql
@@ -381,8 +250,176 @@ BEGIN
     SELECT id, name
     FROM workspaces
     WHERE join_code = upper(code)
+      AND (join_code_expires_at IS NULL OR join_code_expires_at > NOW())
     LIMIT 1
   ) r;
   RETURN result;
 END;
 $$;
+
+-- ── RLS Policies ─────────────────────────────────────────────
+
+-- Profiles
+DROP POLICY IF EXISTS "Profiles viewable by authenticated users" ON profiles;
+CREATE POLICY "Profiles viewable by authenticated users"
+  ON profiles FOR SELECT USING (auth.uid() IS NOT NULL);
+
+DROP POLICY IF EXISTS "Users can insert own profile" ON profiles;
+CREATE POLICY "Users can insert own profile"
+  ON profiles FOR INSERT WITH CHECK (auth.uid() = id);
+
+DROP POLICY IF EXISTS "Users can update own profile" ON profiles;
+CREATE POLICY "Users can update own profile"
+  ON profiles FOR UPDATE USING (auth.uid() = id);
+
+-- Workspaces
+DROP POLICY IF EXISTS "Members can view workspaces" ON workspaces;
+CREATE POLICY "Members can view workspaces"
+  ON workspaces FOR SELECT USING (
+    id IN (SELECT get_my_workspace_ids())
+  );
+
+DROP POLICY IF EXISTS "Find workspace by join_code" ON workspaces;
+CREATE POLICY "Find workspace by join_code"
+  ON workspaces FOR SELECT USING (
+    join_code IS NOT NULL AND auth.uid() IS NOT NULL
+  );
+
+DROP POLICY IF EXISTS "Authenticated users can create workspaces" ON workspaces;
+CREATE POLICY "Authenticated users can create workspaces"
+  ON workspaces FOR INSERT WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Owners can update workspaces" ON workspaces;
+CREATE POLICY "Owners can update workspaces"
+  ON workspaces FOR UPDATE USING (is_ws_admin(id));
+
+DROP POLICY IF EXISTS "Owners can delete workspaces" ON workspaces;
+CREATE POLICY "Owners can delete workspaces"
+  ON workspaces FOR DELETE USING (owner_id = auth.uid());
+
+-- Workspace Members
+DROP POLICY IF EXISTS "Members can view workspace membership" ON workspace_members;
+CREATE POLICY "Members can view workspace membership"
+  ON workspace_members FOR SELECT USING (
+    workspace_id IN (SELECT get_my_workspace_ids())
+  );
+
+DROP POLICY IF EXISTS "Owners/admins can manage members" ON workspace_members;
+CREATE POLICY "Owners/admins can manage members"
+  ON workspace_members FOR INSERT WITH CHECK (
+    is_ws_admin(workspace_id) OR user_id = auth.uid()
+  );
+
+DROP POLICY IF EXISTS "Owners/admins can remove members" ON workspace_members;
+CREATE POLICY "Owners/admins can remove members"
+  ON workspace_members FOR DELETE USING (
+    is_ws_admin(workspace_id) OR user_id = auth.uid()
+  );
+
+-- Invites
+DROP POLICY IF EXISTS "Members/invitees can view invites" ON invites;
+CREATE POLICY "Members/invitees can view invites"
+  ON invites FOR SELECT USING (
+    workspace_id IN (SELECT get_my_workspace_ids())
+    OR email = auth.email()
+  );
+
+DROP POLICY IF EXISTS "Admins can create invites" ON invites;
+CREATE POLICY "Admins can create invites"
+  ON invites FOR INSERT WITH CHECK (
+    workspace_id IN (SELECT get_my_workspace_ids())
+    AND is_ws_admin(workspace_id)
+  );
+
+DROP POLICY IF EXISTS "Admins and invitees can update invites" ON invites;
+CREATE POLICY "Admins and invitees can update invites"
+  ON invites FOR UPDATE USING (
+    is_ws_admin(workspace_id) OR email = auth.email()
+  );
+
+DROP POLICY IF EXISTS "Admins can delete invites" ON invites;
+CREATE POLICY "Admins can delete invites"
+  ON invites FOR DELETE USING (is_ws_admin(workspace_id));
+
+-- Todo Lists
+DROP POLICY IF EXISTS "Workspace members can view todo lists" ON todo_lists;
+CREATE POLICY "Workspace members can view todo lists"
+  ON todo_lists FOR SELECT USING (
+    workspace_id IN (SELECT get_my_workspace_ids())
+  );
+
+DROP POLICY IF EXISTS "Workspace members can manage todo lists" ON todo_lists;
+CREATE POLICY "Workspace members can manage todo lists"
+  ON todo_lists FOR ALL USING (
+    workspace_id IN (SELECT get_my_workspace_ids())
+  );
+
+-- Todos
+DROP POLICY IF EXISTS "Workspace members can view todos" ON todos;
+CREATE POLICY "Workspace members can view todos"
+  ON todos FOR SELECT USING (
+    list_id IN (
+      SELECT tl.id FROM todo_lists tl
+      WHERE tl.workspace_id IN (SELECT get_my_workspace_ids())
+    )
+  );
+
+DROP POLICY IF EXISTS "Workspace members can manage todos" ON todos;
+CREATE POLICY "Workspace members can manage todos"
+  ON todos FOR ALL USING (
+    list_id IN (
+      SELECT tl.id FROM todo_lists tl
+      WHERE tl.workspace_id IN (SELECT get_my_workspace_ids())
+    )
+  );
+
+-- Diagrams
+DROP POLICY IF EXISTS "Members or public can view diagrams" ON diagrams;
+CREATE POLICY "Members or public can view diagrams"
+  ON diagrams FOR SELECT USING (
+    workspace_id IN (SELECT get_my_workspace_ids())
+    OR is_public = true
+  );
+
+DROP POLICY IF EXISTS "Members can create diagrams" ON diagrams;
+CREATE POLICY "Members can create diagrams"
+  ON diagrams FOR INSERT WITH CHECK (
+    workspace_id IN (SELECT get_my_workspace_ids())
+  );
+
+DROP POLICY IF EXISTS "Members or public can edit diagrams" ON diagrams;
+CREATE POLICY "Members or public can edit diagrams"
+  ON diagrams FOR UPDATE USING (
+    workspace_id IN (SELECT get_my_workspace_ids())
+    OR is_public = true
+  );
+
+DROP POLICY IF EXISTS "Members can delete diagrams" ON diagrams;
+CREATE POLICY "Members can delete diagrams"
+  ON diagrams FOR DELETE USING (
+    workspace_id IN (SELECT get_my_workspace_ids())
+  );
+
+-- ── Indexes ───────────────────────────────────────────────────
+CREATE INDEX IF NOT EXISTS idx_workspace_members_user      ON workspace_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_workspace_members_workspace ON workspace_members(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_todos_list                  ON todos(list_id);
+CREATE INDEX IF NOT EXISTS idx_todo_lists_workspace        ON todo_lists(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_invites_token               ON invites(token);
+CREATE INDEX IF NOT EXISTS idx_invites_email               ON invites(email);
+CREATE INDEX IF NOT EXISTS idx_diagrams_workspace          ON diagrams(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_workspaces_join_code        ON workspaces(join_code);
+
+-- ── Role grants ───────────────────────────────────────────────
+-- Allow anon + authenticated roles to call tables, functions, and sequences.
+GRANT ALL ON ALL TABLES    IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL ROUTINES  IN SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
+
+-- Apply the same grants to any objects created in the future by the postgres role.
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  GRANT ALL ON TABLES    TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  GRANT ALL ON ROUTINES  TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;

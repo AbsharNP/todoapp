@@ -7,17 +7,23 @@ const TEAM = {
     if (!currentWsId) return;
     const { data: ws } = await supabase
       .from('workspaces')
-      .select('join_code')
+      .select('join_code, join_code_expires_at')
       .eq('id', currentWsId)
       .single();
 
-    const code = ws?.join_code;
-    if (!code) {
-      $('#join-code-section').html(
-        `<p style="font-size:12px;color:var(--text-3)">No join code yet. Generate one so teammates can join without an email invite.</p>`
-      );
+    const code    = ws?.join_code;
+    const expires = ws?.join_code_expires_at ? new Date(ws.join_code_expires_at) : null;
+    const expired = expires && expires < new Date();
+
+    if (!code || expired) {
+      const msg = expired
+        ? 'Join code expired. Generate a new one.'
+        : 'No join code yet. Generate one so teammates can join without an email invite.';
+      $('#join-code-section').html(`<p style="font-size:12px;color:var(--text-3)">${msg}</p>`);
       return;
     }
+
+    const expiryLabel = expires ? `Expires ${APP.formatDate(expires.toISOString())}` : '';
 
     $('#join-code-section').html(`
       <div class="invite-link-box" style="align-items:center;gap:12px">
@@ -26,9 +32,7 @@ const TEAM = {
           <button class="btn btn-secondary btn-sm" id="btn-copy-join-code">Copy</button>
         </div>
       </div>
-      <p style="font-size:11px;color:var(--text-3);margin-top:6px">
-        Share this code with teammates — they can enter it in "Join Workspace" to join instantly.
-      </p>
+      ${expiryLabel ? `<p style="font-size:11px;color:var(--text-3);margin-top:6px">${expiryLabel} · Share this code so teammates can join instantly.</p>` : ''}
     `);
 
     $('#btn-copy-join-code').on('click', function () {
@@ -135,19 +139,20 @@ $(document).ready(function () {
     APP.toast('Invite link generated!', 'success');
   });
 
-  // Generate workspace join code
+  // Generate workspace join code (expires in 7 days)
   $('#btn-regen-join-code').on('click', async function () {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     let code = '';
     for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
     const { error } = await supabase
       .from('workspaces')
-      .update({ join_code: code })
+      .update({ join_code: code, join_code_expires_at: expiresAt })
       .eq('id', currentWsId);
 
-    if (error) { APP.toast('Failed to generate code', 'error'); return; }
-    APP.toast('Join code generated!', 'success');
+    if (error) { APP.toast('Failed to generate code: ' + error.message, 'error'); return; }
+    APP.toast('Join code generated! Expires in 7 days.', 'success');
     TEAM.loadJoinCode();
   });
 
@@ -159,26 +164,22 @@ $(document).ready(function () {
     openModal('modal-join-workspace');
   });
 
-  // Submit join-by-code
-  $('#btn-submit-join-ws').on('click', async function () {
-    const code = $('#join-ws-code-input').val().trim().toUpperCase();
-    if (code.length !== 6) {
-      $('#join-ws-feedback').text('Please enter a 6-character code.').show();
-      return;
-    }
-
-    $(this).text('Joining…').prop('disabled', true);
-    $('#join-ws-feedback').hide();
-
+  // Shared join-by-code logic
+  async function joinByCode(code, feedbackSel, btnEl) {
     const { data: ws, error } = await supabase
       .from('workspaces')
-      .select('id, name')
+      .select('id, name, join_code_expires_at')
       .eq('join_code', code)
       .maybeSingle();
 
     if (error || !ws) {
-      $('#join-ws-feedback').text('No workspace found with that code. Check and try again.').show();
-      $(this).text('Join Workspace').prop('disabled', false);
+      $(feedbackSel).text('No workspace found with that code. Check and try again.').show();
+      btnEl.text(btnEl.data('label')).prop('disabled', false);
+      return;
+    }
+    if (ws.join_code_expires_at && new Date(ws.join_code_expires_at) < new Date()) {
+      $(feedbackSel).text('This join code has expired. Ask your team admin to generate a new one.').show();
+      btnEl.text(btnEl.data('label')).prop('disabled', false);
       return;
     }
 
@@ -192,7 +193,7 @@ $(document).ready(function () {
     if (existing) {
       APP.toast(`You're already in "${ws.name}"`, 'info');
       closeModal('modal-join-workspace');
-      $(this).text('Join Workspace').prop('disabled', false);
+      btnEl.text(btnEl.data('label')).prop('disabled', false);
       return;
     }
 
@@ -201,16 +202,44 @@ $(document).ready(function () {
       .insert({ workspace_id: ws.id, user_id: APP.currentUser.id, role: 'member' });
 
     if (memberErr) {
-      $('#join-ws-feedback').text('Failed to join. Please try again.').show();
-      $(this).text('Join Workspace').prop('disabled', false);
+      $(feedbackSel).text('Failed to join. Please try again.').show();
+      btnEl.text(btnEl.data('label')).prop('disabled', false);
       return;
     }
 
     APP.toast(`Joined "${ws.name}"!`, 'success');
     closeModal('modal-join-workspace');
-    $(this).text('Join Workspace').prop('disabled', false);
     localStorage.setItem('taskflow_ws', ws.id);
     window.location.reload();
+  }
+
+  // Submit join-by-code (workspace dropdown modal)
+  $('#btn-submit-join-ws').data('label', 'Join Workspace').on('click', async function () {
+    const code = $('#join-ws-code-input').val().trim().toUpperCase();
+    if (code.length !== 6) {
+      $('#join-ws-feedback').text('Please enter a 6-character code.').show();
+      return;
+    }
+    $(this).text('Joining…').prop('disabled', true);
+    $('#join-ws-feedback').hide();
+    await joinByCode(code, '#join-ws-feedback', $(this));
+  });
+
+  // Submit join-by-code (team panel inline input)
+  $('#btn-team-join-code').data('label', 'Join').on('click', async function () {
+    if (APP.isGuest()) { APP.toast('Sign in to join a workspace', 'warning'); return; }
+    const code = $('#team-join-code-input').val().trim().toUpperCase();
+    if (code.length !== 6) {
+      $('#team-join-feedback').text('Please enter a 6-character code.').show();
+      return;
+    }
+    $(this).text('Joining…').prop('disabled', true);
+    $('#team-join-feedback').hide();
+    await joinByCode(code, '#team-join-feedback', $(this));
+  });
+
+  $('#team-join-code-input').on('keydown', function (e) {
+    if (e.key === 'Enter') $('#btn-team-join-code').trigger('click');
   });
 
   // Copy invite link

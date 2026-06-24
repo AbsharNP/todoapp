@@ -363,7 +363,8 @@ function renderMembers() {
 
 function renderAssigneeOptions() {
   const opts = allMembers.map(m => `<option value="${m.user_id}">${m.profiles?.display_name || 'Unknown'}</option>`).join('');
-  $('#todo-assignee, #detail-assignee').append(opts);
+  $('#todo-assignee').html(`<option value="">Unassigned</option>${opts}`);
+  $('#detail-assignee').html(`<option value="">Unassigned</option>${opts}`);
 }
 
 // ── Todos ─────────────────────────────────────────────────────

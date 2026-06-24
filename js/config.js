@@ -71,6 +71,29 @@ const APP = {
     return `<div class="avatar" style="width:${size}px;height:${size}px;background:${color};font-size:${size * 0.38}px">${initials}</div>`;
   },
 
+  theme: {
+    init() {
+      const saved = localStorage.getItem('taskflow_theme') || 'dark';
+      document.documentElement.setAttribute('data-theme', saved);
+      return saved;
+    },
+    toggle() {
+      const next = APP.theme.current() === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('taskflow_theme', next);
+      APP.theme._updateButtons();
+      return next;
+    },
+    current() {
+      return document.documentElement.getAttribute('data-theme') || 'dark';
+    },
+    _updateButtons() {
+      const isDark = APP.theme.current() === 'dark';
+      $('.theme-toggle-icon').text(isDark ? '🌙' : '☀️');
+      $('.theme-toggle-label').text(isDark ? 'Light Mode' : 'Dark Mode');
+    }
+  },
+
   toast(message, type = 'info') {
     const id = 'toast-' + Date.now();
     const icons = { success: '✓', error: '✕', info: 'ℹ', warning: '⚠' };

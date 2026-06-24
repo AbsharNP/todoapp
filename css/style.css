@@ -55,6 +55,41 @@
   --transition: 0.18s ease;
 }
 
+/* ── Light Mode ────────────────────────────────────────────── */
+html[data-theme="light"] {
+  --bg-0: #f4f4fc;
+  --bg-1: #eaeaf5;
+  --bg-2: #ffffff;
+  --bg-3: #f0f0fa;
+  --bg-4: #e6e6f4;
+  --bg-5: #d8d8ee;
+
+  --border: rgba(100,100,160,0.13);
+  --border-focus: rgba(124,106,240,0.4);
+
+  --text-1: #1a1a2e;
+  --text-2: #4a4a70;
+  --text-3: #8080a8;
+  --text-4: #adadcc;
+
+  --accent-light: rgba(124,106,240,0.1);
+  --accent-glow: rgba(124,106,240,0.15);
+
+  --shadow-sm: 0 1px 3px rgba(60,60,100,0.1);
+  --shadow: 0 4px 16px rgba(60,60,100,0.1);
+  --shadow-lg: 0 8px 32px rgba(60,60,100,0.15);
+  --shadow-accent: 0 4px 20px rgba(124,106,240,0.25);
+}
+html[data-theme="light"] .modal-backdrop { background: rgba(30,30,70,0.4); }
+html[data-theme="light"] .auth-glow-1 { background: rgba(124,106,240,0.07); }
+html[data-theme="light"] .auth-glow-2 { background: rgba(139,92,246,0.05); }
+html[data-theme="light"] .auth-right {
+  background: linear-gradient(160deg, rgba(124,106,240,0.07), rgba(139,92,246,0.04));
+}
+html[data-theme="light"] .select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238080a8' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+
 /* ── Reset ─────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html { scroll-behavior: smooth; }

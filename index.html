@@ -29,6 +29,7 @@
   <link rel="preconnect" href="https://code.jquery.com" crossorigin>
   <link rel="dns-prefetch" href="https://wxoxwmsuquhltlyebvje.supabase.co">
 
+  <script>document.documentElement.setAttribute('data-theme', localStorage.getItem('taskflow_theme') || 'dark');</script>
   <link rel="stylesheet" href="css/style.css">
 
   <!-- Structured data -->
@@ -180,9 +181,21 @@
     }
   </style>
 
+  <button id="btn-theme-toggle-auth" class="btn btn-ghost btn-sm" style="position:fixed;top:16px;right:16px;z-index:200;gap:6px">
+    <span class="theme-toggle-icon">🌙</span>
+    <span class="theme-toggle-label">Light Mode</span>
+  </button>
+
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
   <script src="js/config.js"></script>
   <script src="js/auth.js"></script>
+  <script>
+    APP.theme.init();
+    APP.theme._updateButtons();
+    document.getElementById('btn-theme-toggle-auth').addEventListener('click', function () {
+      APP.theme.toggle();
+    });
+  </script>
 </body>
 </html>

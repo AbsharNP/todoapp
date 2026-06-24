@@ -42,6 +42,9 @@ const NODE_DEFAULTS = {
 };
 
 $(document).ready(async function () {
+  APP.theme.init();
+  APP.theme._updateButtons();
+
   const session = await APP.init();
 
   const params = new URLSearchParams(window.location.search);
@@ -74,6 +77,8 @@ function initUserMenu(session) {
     $('#diagram-user-dropdown').toggleClass('open');
   });
   $(document).on('click', function () { $('#diagram-user-dropdown').removeClass('open'); });
+
+  $('#btn-diagram-theme').on('click', function () { APP.theme.toggle(); });
 
   $('#btn-diagram-logout').on('click', async function () {
     await supabase.auth.signOut();

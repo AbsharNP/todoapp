@@ -9,6 +9,10 @@ let selectedListId = 'all';
 let selectedColor = '#6366f1';
 
 $(document).ready(async function () {
+  APP.theme.init();
+  APP.theme._updateButtons();
+  $('#btn-theme-toggle').on('click', function () { APP.theme.toggle(); });
+
   const session = await APP.init();
   if (!session) { window.location.href = 'index.html'; return; }
 

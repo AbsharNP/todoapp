@@ -23,6 +23,7 @@
   <link rel="preconnect" href="https://code.jquery.com" crossorigin>
   <link rel="dns-prefetch" href="https://wxoxwmsuquhltlyebvje.supabase.co">
 
+  <script>document.documentElement.setAttribute('data-theme', localStorage.getItem('taskflow_theme') || 'dark');</script>
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -84,6 +85,10 @@
           <span class="user-menu-chevron">▾</span>
         </button>
         <div class="dropdown-menu" id="user-dropdown">
+          <button class="dropdown-item" id="btn-theme-toggle">
+            <span class="theme-toggle-icon">🌙</span> <span class="theme-toggle-label">Light Mode</span>
+          </button>
+          <div class="divider"></div>
           <button class="dropdown-item" id="btn-logout">
             <span>🚪</span> Sign Out
           </button>

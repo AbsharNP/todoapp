@@ -181,6 +181,10 @@
 .text-hit-area { fill: transparent; stroke: none; }
 .node-group.selected .text-hit-area { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 5,3; fill: rgba(124,106,240,0.04); }
 #inline-text-editor { position: fixed; background: rgba(14,14,26,0.94); border-radius: 6px; font-family: 'Inter', sans-serif; font-weight: 400; line-height: 1.5; padding: 6px 10px; resize: none; outline: none; z-index: 500; box-sizing: border-box; text-align: center; white-space: pre-wrap; overflow-y: auto; }
+
+/* ── Light mode — keep canvas dark, adapt chrome ────────────── */
+html[data-theme="light"] .diagram-canvas-wrapper { background: #0c0c18; }
+html[data-theme="light"] #inline-text-editor { background: rgba(10,10,22,0.92); }
 .node-label {
   font-family: 'Inter', sans-serif;
   font-size: 12px;

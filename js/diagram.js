@@ -6,6 +6,7 @@ let diagram = null;
 let diagramId = null;
 let diagramType = 'flowchart';
 let selectedRelType = 'one-to-many';
+let isReadOnly = false;
 
 // Node/edge state
 let nodes = [];
@@ -36,7 +37,8 @@ const NODE_DEFAULTS = {
   decision:  { w: 130, h: 70, color: '#fbbf24', label: 'Decision?' },
   io:        { w: 140, h: 50, color: '#60a5fa', label: 'Input/Output' },
   connector: { w: 50,  h: 50, color: '#fb923c', label: '' },
-  'er-table':{ w: 180, h: 120, color: '#7c6af0', label: 'NewTable' }
+  'er-table':{ w: 180, h: 120, color: '#7c6af0', label: 'NewTable' },
+  'text':    { w: 180, h: 80, color: '#a8a8c0', label: 'Add text here...' }
 };
 
 $(document).ready(async function () {
@@ -94,6 +96,21 @@ async function loadDiagram() {
   $('#diagram-name').val(data.name);
   $('#diagram-type-badge').text(diagramType === 'er' ? 'ER DIAGRAM' : 'FLOWCHART');
 
+  // Check workspace membership; non-members get read-only access
+  const { data: authData } = await supabase.auth.getUser();
+  const user = authData?.user;
+  if (user && !user.is_anonymous) {
+    const { data: membership } = await supabase
+      .from('workspace_members')
+      .select('id')
+      .eq('workspace_id', data.workspace_id)
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (!membership) setReadOnlyMode();
+  } else {
+    setReadOnlyMode();
+  }
+
   // Show correct palette
   if (diagramType === 'er') {
     $('#palette-flowchart').hide();
@@ -111,6 +128,20 @@ async function loadDiagram() {
   fitView();
 }
 
+function setReadOnlyMode() {
+  isReadOnly = true;
+  $('#btn-save-diagram').hide();
+  $('#btn-export').hide();
+  $('#btn-export-json').hide();
+  $('#btn-share').hide();
+  $('[data-tool="connect"]').hide();
+  $('#diagram-type-badge').off('click').css('opacity', '0.5');
+  $('#diagram-name').prop('readonly', true);
+  $('.diagram-sidebar').hide();
+  $('<span style="padding:2px 10px;background:rgba(251,146,60,0.12);color:#fb923c;border-radius:4px;font-size:11px;font-weight:700;letter-spacing:.5px;white-space:nowrap">VIEW ONLY</span>')
+    .insertAfter('#diagram-type-badge');
+}
+
 async function saveDiagram() {
   const name = $('#diagram-name').val().trim() || 'Untitled';
   const { error } = await supabase.from('diagrams').update({
@@ -124,6 +155,7 @@ async function saveDiagram() {
 }
 
 async function switchDiagramType() {
+  if (isReadOnly) return;
   const newType = diagramType === 'flowchart' ? 'er' : 'flowchart';
   diagramType = newType;
   const label = newType === 'er' ? 'ER DIAGRAM' : 'FLOWCHART';
@@ -158,8 +190,75 @@ async function shareDiagram() {
 }
 
 function scheduleSave() {
+  if (isReadOnly) return;
   clearTimeout(saveTimeout);
   saveTimeout = setTimeout(saveDiagram, 2000);
+}
+
+// ── Inline Text Editor ────────────────────────────────────────
+let textEditNode = null;
+
+function openTextEditor(node) {
+  // Close any open editor first (blur saves it)
+  const existing = document.getElementById('inline-text-editor');
+  if (existing) { existing.blur(); }
+
+  textEditNode = node;
+  const wrapper = document.getElementById('canvas-wrapper');
+  const r = wrapper.getBoundingClientRect();
+
+  const $ta = $('<textarea id="inline-text-editor"></textarea>')
+    .css({
+      left:      (r.left + panX + node.x * scale) + 'px',
+      top:       (r.top  + panY + node.y * scale) + 'px',
+      width:     (node.w * scale) + 'px',
+      height:    (node.h * scale) + 'px',
+      border:    '1.5px dashed ' + node.color,
+      color:     node.color,
+      fontSize:  Math.round(12 * scale) + 'px',
+      caretColor: node.color
+    })
+    .val(node.label === 'Add text here...' ? '' : node.label);
+
+  $('body').append($ta);
+  $ta[0].setSelectionRange($ta.val().length, $ta.val().length);
+  $ta.focus();
+
+  $ta.on('input', function () {
+    node.label = $(this).val() || '';
+    renderNode(node);
+  });
+
+  $ta.on('blur', function () {
+    if (!textEditNode || textEditNode.id !== node.id) return;
+    node.label = $(this).val() || '';
+    if (!node.label.trim()) node.label = '';
+    renderNode(node);
+    renderEdgesForNode(node.id);
+    scheduleSave();
+    $(this).remove();
+    textEditNode = null;
+  });
+
+  $ta.on('keydown', function (e) {
+    e.stopPropagation();
+    if (e.key === 'Escape') $(this).blur();
+  });
+}
+
+function updateInlineEditorPos() {
+  if (!textEditNode) return;
+  const $ta = $('#inline-text-editor');
+  if (!$ta.length) return;
+  const wrapper = document.getElementById('canvas-wrapper');
+  const r = wrapper.getBoundingClientRect();
+  $ta.css({
+    left:     (r.left + panX + textEditNode.x * scale) + 'px',
+    top:      (r.top  + panY + textEditNode.y * scale) + 'px',
+    width:    (textEditNode.w * scale) + 'px',
+    height:   (textEditNode.h * scale) + 'px',
+    fontSize: Math.round(12 * scale) + 'px'
+  });
 }
 
 // ── Canvas Init ───────────────────────────────────────────────
@@ -173,6 +272,7 @@ function initCanvas() {
   wrapper.addEventListener('drop', e => {
     e.preventDefault();
     wrapper.classList.remove('drag-over');
+    if (isReadOnly) return;
     const type = e.dataTransfer.getData('node-type');
     if (!type) return;
     const rect = svg.getBoundingClientRect();
@@ -333,7 +433,7 @@ function initKeyboard() {
     switch (e.key) {
       case 'v': case 'V': setTool('select'); break;
       case 'c': case 'C': setTool('connect'); break;
-      case 'Delete': case 'Backspace': deleteSelected(); break;
+      case 'Delete': case 'Backspace': if (!isReadOnly) deleteSelected(); break;
       case '+': case '=': zoom(1.2); break;
       case '-': zoom(0.8); break;
       case 'Escape': selectNode(null); cancelEdgeDrawing(); setTool('select'); break;
@@ -373,6 +473,10 @@ function addNode(type, x, y) {
 }
 
 function deleteNode(id) {
+  if (textEditNode && textEditNode.id === id) {
+    $('#inline-text-editor').off('blur').remove();
+    textEditNode = null;
+  }
   nodes = nodes.filter(n => n.id !== id);
   edges = edges.filter(e => e.from !== id && e.to !== id);
   $(`#${id}`).remove();
@@ -397,7 +501,7 @@ function bringToFront(id) {
 }
 
 function deleteSelected() {
-  if (!selectedId) return;
+  if (isReadOnly || !selectedId) return;
   const edge = edges.find(e => e.id === selectedId);
   if (edge) {
     edges = edges.filter(e => e.id !== selectedId);
@@ -530,6 +634,22 @@ function buildNodeShape(node) {
     editBtn.setAttribute('class', 'er-edit-btn');
     editBtn.setAttribute('data-node-id', node.id);
     frag.appendChild(editBtn);
+  } else if (type === 'text') {
+    // Invisible hit/select area — no visible box in normal state
+    const hit = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    hit.setAttribute('width', w); hit.setAttribute('height', h);
+    hit.setAttribute('rx', 6);
+    hit.setAttribute('class', 'text-hit-area');
+    frag.appendChild(hit);
+    const lines = String(label || '').split('\n');
+    const lineH = 18;
+    const totalH = lines.length * lineH;
+    const startY = (h - totalH) / 2 + lineH / 2;
+    if (lines.length === 1 && !lines[0].trim()) {
+      frag.appendChild(makeText('Double-click to edit', w / 2, h / 2, 10, color + '70', 400));
+    } else {
+      lines.forEach((line, i) => frag.appendChild(makeText(line, w / 2, startY + i * lineH, 12, color, 400)));
+    }
   } else {
     // Default process rectangle
     const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
@@ -574,7 +694,7 @@ function bindNodeEvents(g, node) {
 
     if ($(e.target).hasClass('node-port')) {
       // Start edge drawing
-      if (tool === 'connect' || tool === 'select') {
+      if (!isReadOnly && (tool === 'connect' || tool === 'select')) {
         const portDir = $(e.target).data('port');
         const portPos = getPortPos(node, portDir);
         drawingEdge = { fromId: node.id, fromPort: portDir, fromPos: portPos };
@@ -593,7 +713,7 @@ function bindNodeEvents(g, node) {
 
     selectNode(node.id);
 
-    if (tool === 'select') {
+    if (tool === 'select' && !isReadOnly) {
       isDragging = true;
       dragNode = node;
       const pos = svgPos(e);
@@ -615,7 +735,9 @@ function bindNodeEvents(g, node) {
 
   // Double-click to edit label
   $g.on('dblclick', function (e) {
+    if (isReadOnly) return;
     if (node.type === 'er-table') { openErEditor(node.id); return; }
+    if (node.type === 'text') { openTextEditor(node); return; }
     const newLabel = prompt('Edit label:', node.label);
     if (newLabel !== null) {
       node.label = newLabel;
@@ -772,6 +894,27 @@ function selectNode(id) {
 function showNodeProperties(node) {
   if (node.type === 'er-table') { $('#properties-panel').hide(); return; }
   $('#properties-panel').show();
+
+  if (node.type === 'text') {
+    $('#properties-content').html(`
+      <div class="prop-row">
+        <label class="prop-label">Color</label>
+        <input type="color" class="prop-input" id="prop-color" value="${node.color}" style="padding:2px;height:32px">
+      </div>
+      <p style="font-size:10px;color:var(--text-3);margin-top:8px;line-height:1.5">Double-click the text on canvas to edit. Click outside to close.</p>
+    `);
+    $('#prop-color').on('input', function () {
+      node.color = $(this).val();
+      renderNode(node);
+      const $ta = $('#inline-text-editor');
+      if ($ta.length && textEditNode && textEditNode.id === node.id) {
+        $ta.css({ border: '1.5px dashed ' + node.color, color: node.color, caretColor: node.color });
+      }
+      scheduleSave();
+    });
+    return;
+  }
+
   $('#properties-content').html(`
     <div class="prop-row">
       <label class="prop-label">Label</label>
@@ -838,6 +981,7 @@ function showEdgeProperties(edge) {
 
 // ── ER Table Editor ───────────────────────────────────────────
 function openErEditor(nodeId) {
+  if (isReadOnly) return;
   editingErNodeId = nodeId;
   const node = nodes.find(n => n.id === nodeId);
   if (!node) return;
@@ -943,6 +1087,7 @@ function svgPos(e) {
 
 function updateTransform() {
   document.getElementById('diagram-layer').setAttribute('transform', `translate(${panX},${panY}) scale(${scale})`);
+  updateInlineEditorPos();
 }
 
 function updateZoomDisplay() {

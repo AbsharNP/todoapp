@@ -225,21 +225,12 @@ $(document).ready(function () {
     await joinByCode(code, '#join-ws-feedback', $(this));
   });
 
-  // Submit join-by-code (team panel inline input)
-  $('#btn-team-join-code').data('label', 'Join').on('click', async function () {
+  // Team panel "Join by Code" button — opens the shared modal
+  $('#btn-join-ws-from-team').on('click', function () {
     if (APP.isGuest()) { APP.toast('Sign in to join a workspace', 'warning'); return; }
-    const code = $('#team-join-code-input').val().trim().toUpperCase();
-    if (code.length !== 6) {
-      $('#team-join-feedback').text('Please enter a 6-character code.').show();
-      return;
-    }
-    $(this).text('Joining…').prop('disabled', true);
-    $('#team-join-feedback').hide();
-    await joinByCode(code, '#team-join-feedback', $(this));
-  });
-
-  $('#team-join-code-input').on('keydown', function (e) {
-    if (e.key === 'Enter') $('#btn-team-join-code').trigger('click');
+    $('#join-ws-code-input').val('');
+    $('#join-ws-feedback').hide();
+    openModal('modal-join-workspace');
   });
 
   // Copy invite link

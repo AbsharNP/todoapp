@@ -13,6 +13,16 @@ $(document).ready(async function () {
   APP.theme._updateButtons();
   $('#btn-theme-toggle').on('click', function () { APP.theme.toggle(); });
 
+  // Sidebar collapse
+  if (localStorage.getItem('taskflow_sidebar') === 'collapsed') {
+    $('.app-layout').addClass('sidebar-collapsed');
+  }
+  $('#btn-toggle-sidebar').on('click', function () {
+    const collapsed = $('.app-layout').toggleClass('sidebar-collapsed').hasClass('sidebar-collapsed');
+    localStorage.setItem('taskflow_sidebar', collapsed ? 'collapsed' : 'expanded');
+    $(this).attr('data-tooltip', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+  });
+
   const session = await APP.init();
   if (!session) { window.location.href = 'index.html'; return; }
 

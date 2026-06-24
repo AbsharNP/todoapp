@@ -89,7 +89,7 @@ const APP = {
     },
     _updateButtons() {
       const isDark = APP.theme.current() === 'dark';
-      $('.theme-toggle-icon').text(isDark ? '🌙' : '☀️');
+      $('.theme-toggle-icon').text(isDark ? '☀️' : '🌙');
       $('.theme-toggle-label').text(isDark ? 'Light Mode' : 'Dark Mode');
     }
   },

@@ -31,8 +31,8 @@
 
   <!-- ── Sidebar ───────────────────────────────────────────── -->
   <aside class="sidebar">
-    <div class="sidebar-top" style="position:relative">
-      <button class="workspace-switcher" id="ws-switcher" data-tooltip="Switch workspace">
+    <div class="sidebar-top">
+      <button class="workspace-switcher" id="ws-switcher" data-tooltip="Switch workspace" aria-label="Switch workspace">
         <div class="workspace-icon" id="ws-icon">T</div>
         <span class="workspace-name" id="ws-name">Loading...</span>
         <span class="workspace-chevron">▾</span>
@@ -70,6 +70,12 @@
         </button>
         <button class="nav-item" data-panel="settings" data-tooltip="Workspace settings">
           <span class="nav-icon">⚙️</span> <span>Settings</span>
+        </button>
+      </div>
+      <div class="sidebar-collapse-section">
+        <button class="nav-item sidebar-collapse-btn" id="btn-toggle-sidebar" data-tooltip="Collapse sidebar">
+          <span class="nav-icon">◀</span>
+          <span>Collapse</span>
         </button>
       </div>
     </nav>

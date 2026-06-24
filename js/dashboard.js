@@ -90,8 +90,9 @@ $(document).ready(async function () {
   $('#btn-delete-todo').on('click', deleteTodo);
 
   // Diagrams
-  $('#btn-new-flowchart').on('click', () => createDiagram('flowchart'));
-  $('#btn-new-er').on('click', () => createDiagram('er'));
+  $('#btn-new-flowchart').on('click', () => openNewDiagramModal('flowchart'));
+  $('#btn-new-er').on('click', () => openNewDiagramModal('er'));
+  $('#btn-create-diagram').on('click', createDiagram);
   $('#btn-import-diagram').on('click', () => $('#input-import-diagram').click());
   $('#input-import-diagram').on('change', function () {
     if (this.files[0]) { importDiagram(this.files[0]); this.value = ''; }
@@ -190,9 +191,9 @@ function selectWorkspace(wsId) {
 
 function renderWsList() {
   const html = workspaces.map(ws => `
-    <div class="ws-item ${ws.id === currentWsId ? 'active' : ''}" data-ws="${ws.id}">
-      <div class="workspace-icon" style="width:20px;height:20px;font-size:11px">${(ws.name||'W')[0].toUpperCase()}</div>
-      ${ws.name}
+    <div class="ws-item ${ws.id === currentWsId ? 'active' : ''}" data-ws="${escHtml(ws.id)}">
+      <div class="workspace-icon" style="width:20px;height:20px;font-size:11px">${escHtml((ws.name||'W')[0].toUpperCase())}</div>
+      ${escHtml(ws.name)}
       ${ws.id === currentWsId ? '<span style="margin-left:auto;color:var(--accent)">✓</span>' : ''}
     </div>
   `).join('');
@@ -250,7 +251,13 @@ async function saveWorkspaceSettings() {
 }
 
 async function deleteWorkspace() {
-  if (!confirm('Delete this workspace and all its data? This cannot be undone.')) return;
+  const $btn = $('#btn-delete-workspace');
+  if (!$btn.data('confirming')) {
+    $btn.data('confirming', true).text('Click again to confirm delete').addClass('btn-danger');
+    setTimeout(() => $btn.data('confirming', false).text('Delete Workspace').removeClass('btn-danger'), 4000);
+    return;
+  }
+  $btn.data('confirming', false).text('Delete Workspace').removeClass('btn-danger');
   await supabase.from('workspaces').delete().eq('id', currentWsId);
   workspaces = workspaces.filter(w => w.id !== currentWsId);
   if (workspaces.length > 0) {
@@ -284,14 +291,17 @@ async function loadLists() {
 
 function renderListSelector() {
   const chips = `<button class="list-chip ${selectedListId === 'all' ? 'active' : ''}" data-list="all">All Lists</button>`
-    + allLists.map(l => `
-      <button class="list-chip ${selectedListId === l.id ? 'active' : ''}"
-              data-list="${l.id}"
-              style="${selectedListId === l.id ? `background:${l.color};border-color:${l.color}` : ''}">
-        <span class="list-dot" style="background:${l.color}"></span>
-        ${l.name}
-      </button>
-    `).join('');
+    + allLists.map(l => {
+      const safeColor = safeCssColor(l.color);
+      return `
+        <button class="list-chip ${selectedListId === l.id ? 'active' : ''}"
+                data-list="${escHtml(l.id)}"
+                style="${selectedListId === l.id ? `background:${safeColor};border-color:${safeColor}` : ''}">
+          <span class="list-dot" style="background:${safeColor}"></span>
+          ${escHtml(l.name)}
+        </button>
+      `;
+    }).join('');
 
   $('#list-selector').html(chips);
   $('#list-selector .list-chip').on('click', function () {
@@ -302,7 +312,7 @@ function renderListSelector() {
 }
 
 function renderListOptions() {
-  const opts = allLists.map(l => `<option value="${l.id}">${l.name}</option>`).join('');
+  const opts = allLists.map(l => `<option value="${escHtml(l.id)}">${escHtml(l.name)}</option>`).join('');
   $('#todo-list, #detail-list').html(opts || '<option value="">No lists – create one first</option>');
 }
 
@@ -344,17 +354,18 @@ function renderMembers() {
   const html = allMembers.map(m => {
     const name = m.profiles?.display_name || 'Unknown';
     const email = APP.currentUser.id === m.user_id ? APP.currentUser.email : '';
-    const initials = name.split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase();
+    const initials = escHtml(name.split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase());
     const colors = ['#6366f1','#8b5cf6','#ec4899','#f59e0b','#10b981','#3b82f6'];
     const color = colors[name.charCodeAt(0) % colors.length];
+    const safeRole = escHtml(m.role);
     return `
       <div class="member-card">
         <div class="avatar" style="width:40px;height:40px;background:${color};font-size:15px;font-weight:700;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center">${initials}</div>
         <div class="member-info">
-          <div class="member-name">${name}</div>
-          <div class="member-email">${email}</div>
+          <div class="member-name">${escHtml(name)}</div>
+          <div class="member-email">${escHtml(email)}</div>
         </div>
-        <span class="member-role role-${m.role}">${m.role}</span>
+        <span class="member-role role-${safeRole}">${safeRole}</span>
       </div>
     `;
   }).join('');
@@ -362,21 +373,22 @@ function renderMembers() {
   $('#members-list').html(html);
   $('#overview-team').html(allMembers.slice(0,4).map(m => {
     const name = m.profiles?.display_name || 'Unknown';
-    const initials = name.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
+    const initials = escHtml(name.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase());
     const colors = ['#6366f1','#8b5cf6','#ec4899','#f59e0b','#10b981','#3b82f6'];
     const color = colors[name.charCodeAt(0) % colors.length];
+    const safeRole = escHtml(m.role);
     return `
       <div class="member-card">
         <div class="avatar" style="width:36px;height:36px;background:${color};font-size:13px;font-weight:700;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center">${initials}</div>
-        <div class="member-info"><div class="member-name">${name}</div></div>
-        <span class="member-role role-${m.role}">${m.role}</span>
+        <div class="member-info"><div class="member-name">${escHtml(name)}</div></div>
+        <span class="member-role role-${safeRole}">${safeRole}</span>
       </div>
     `;
   }).join(''));
 }
 
 function renderAssigneeOptions() {
-  const opts = allMembers.map(m => `<option value="${m.user_id}">${m.profiles?.display_name || 'Unknown'}</option>`).join('');
+  const opts = allMembers.map(m => `<option value="${escHtml(m.user_id)}">${escHtml(m.profiles?.display_name || 'Unknown')}</option>`).join('');
   $('#todo-assignee').html(`<option value="">Unassigned</option>${opts}`);
   $('#detail-assignee').html(`<option value="">Unassigned</option>${opts}`);
 }
@@ -443,20 +455,21 @@ function renderTaskCard(todo) {
   const isDone = todo.status === 'done';
   const assignee = allMembers.find(m => m.user_id === todo.assigned_to);
   const assigneeName = assignee?.profiles?.display_name;
+  const priority = escHtml(todo.priority);
 
   return `
-    <div class="task-card" data-id="${todo.id}">
-      <div class="task-card-priority ${todo.priority}"></div>
+    <div class="task-card" data-id="${escHtml(todo.id)}">
+      <div class="task-card-priority ${priority}"></div>
       <div class="task-card-header">
         <div class="task-check ${isDone ? 'checked' : ''}"></div>
         <div class="task-card-title ${isDone ? 'done-text' : ''}">${escHtml(todo.title)}</div>
       </div>
       <div class="task-card-meta">
-        <span class="badge badge-${todo.priority}">${todo.priority}</span>
+        <span class="badge badge-${priority}">${priority}</span>
         ${todo.due_date ? `<span class="task-due ${isOverdue ? 'overdue' : ''}">📅 ${APP.formatDate(todo.due_date)}</span>` : ''}
       </div>
       <div class="task-card-footer">
-        ${list ? `<span class="task-list-badge" style="background:${list.color}">${escHtml(list.name)}</span>` : '<span></span>'}
+        ${list ? `<span class="task-list-badge" style="background:${safeCssColor(list.color)}">${escHtml(list.name)}</span>` : '<span></span>'}
         ${assigneeName ? `<span style="font-size:11px;color:var(--text-3)">→ ${escHtml(assigneeName)}</span>` : ''}
       </div>
     </div>
@@ -552,7 +565,13 @@ async function saveTodoDetail() {
 
 async function deleteTodo() {
   const id = $('#detail-todo-id').val();
-  if (!confirm('Delete this task?')) return;
+  const $btn = $('#btn-delete-todo');
+  if (!$btn.data('confirming')) {
+    $btn.data('confirming', true).text('Confirm delete?');
+    setTimeout(() => $btn.data('confirming', false).text('Delete Task'), 4000);
+    return;
+  }
+  $btn.data('confirming', false).text('Delete Task');
   await supabase.from('todos').delete().eq('id', id);
   allTodos = allTodos.filter(t => t.id !== id);
   closeModal('modal-todo-detail');
@@ -584,13 +603,13 @@ function renderOverview() {
         const list = allLists.find(l => l.id === t.list_id);
         return `
           <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer" data-id="${t.id}" class="overview-todo-row">
-            <div style="width:3px;height:36px;background:${list?.color || '#6366f1'};border-radius:2px;flex-shrink:0"></div>
+            <div style="width:3px;height:36px;background:${safeCssColor(list?.color)};border-radius:2px;flex-shrink:0"></div>
             <div style="flex:1;min-width:0">
               <div style="font-size:13px;font-weight:500;${t.status === 'done' ? 'text-decoration:line-through;color:var(--text-3)' : ''}">${escHtml(t.title)}</div>
               ${t.due_date ? `<div style="font-size:11px;color:${APP.isOverdue(t.due_date) && t.status !== 'done' ? 'var(--red)' : 'var(--text-3)'}">${APP.formatDate(t.due_date)}</div>` : ''}
             </div>
-            <span class="badge badge-${t.priority}">${t.priority}</span>
-            <span class="badge badge-${t.status}">${t.status.replace('_',' ')}</span>
+            <span class="badge badge-${escHtml(t.priority)}">${escHtml(t.priority)}</span>
+            <span class="badge badge-${escHtml(t.status)}">${escHtml(t.status.replace('_',' '))}</span>
           </div>
         `;
       }).join('')}
@@ -647,16 +666,27 @@ async function renderDiagrams() {
   });
 }
 
-async function createDiagram(type) {
+let pendingDiagramType = 'flowchart';
+
+function openNewDiagramModal(type) {
   if (!currentWsId) return APP.toast('No workspace selected', 'error');
-  const name = prompt(`Name for this ${type === 'er' ? 'ER Diagram' : 'Flowchart'}:`, type === 'er' ? 'Database Schema' : 'My Flow');
-  if (!name) return;
+  pendingDiagramType = type;
+  $('#modal-new-diagram-title').text(type === 'er' ? 'New ER Diagram' : 'New Flowchart');
+  $('#new-diagram-name').val(type === 'er' ? 'Database Schema' : 'My Flow');
+  openModal('modal-new-diagram');
+  setTimeout(() => $('#new-diagram-name').focus().select(), 50);
+}
+
+async function createDiagram() {
+  const name = $('#new-diagram-name').val().trim();
+  if (!name) return APP.toast('Please enter a diagram name', 'warning');
 
   const { data, error } = await supabase.from('diagrams')
-    .insert({ workspace_id: currentWsId, name, type, created_by: APP.currentUser.id })
+    .insert({ workspace_id: currentWsId, name, type: pendingDiagramType, created_by: APP.currentUser.id })
     .select().single();
 
   if (error) return APP.toast('Failed to create diagram', 'error');
+  closeModal('modal-new-diagram');
   window.location.href = `diagram.html?id=${data.id}`;
 }
 
@@ -799,4 +829,15 @@ async function importDiagram(file) {
 // ── Utils ─────────────────────────────────────────────────────
 function escHtml(str) {
   return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Validates that a color value is a safe CSS color (hex, rgb, hsl) before
+// injecting into style attributes to prevent CSS injection.
+function safeCssColor(color, fallback = '#6366f1') {
+  const s = String(color || '').trim();
+  if (/^#[0-9a-fA-F]{3,8}$/.test(s)) return s;
+  if (/^rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)$/.test(s)) return s;
+  if (/^rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*[\d.]+\s*\)$/.test(s)) return s;
+  if (/^hsl\(\s*\d+\s*,\s*[\d.]+%\s*,\s*[\d.]+%\s*\)$/.test(s)) return s;
+  return fallback;
 }

@@ -189,7 +189,7 @@ async function shareDiagram() {
     await navigator.clipboard.writeText(url);
     APP.toast('Share link copied to clipboard!', 'success');
   } catch {
-    prompt('Copy this link:', url);
+    APP.toast('Copy this link: ' + url, 'info');
   }
   $btn.text('Shared ✓').prop('disabled', false);
 }

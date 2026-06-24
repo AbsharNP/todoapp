@@ -509,6 +509,26 @@
   </div>
 </div>
 
+<!-- Name New Diagram -->
+<div class="modal-backdrop" id="modal-new-diagram">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modal-new-diagram-title">New Diagram</h3>
+      <button class="modal-close" data-close="modal-new-diagram" data-tooltip="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Diagram Name</label>
+        <input type="text" class="input" id="new-diagram-name" placeholder="e.g. My Flow" maxlength="100">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" data-close="modal-new-diagram">Cancel</button>
+      <button class="btn btn-primary" id="btn-create-diagram">Create</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="js/config.js"></script>

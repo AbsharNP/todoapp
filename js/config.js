@@ -68,7 +68,8 @@ const APP = {
     const initials = (name || '?').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
     const colors = ['#6366f1','#8b5cf6','#ec4899','#f59e0b','#10b981','#3b82f6'];
     const color = colors[name ? name.charCodeAt(0) % colors.length : 0];
-    return `<div class="avatar" style="width:${size}px;height:${size}px;background:${color};font-size:${size * 0.38}px">${initials}</div>`;
+    const safeInitials = initials.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    return `<div class="avatar" style="width:${size}px;height:${size}px;background:${color};font-size:${size * 0.38}px">${safeInitials}</div>`;
   },
 
   theme: {
@@ -97,10 +98,11 @@ const APP = {
   toast(message, type = 'info') {
     const id = 'toast-' + Date.now();
     const icons = { success: '✓', error: '✕', info: 'ℹ', warning: '⚠' };
+    const safeMsg = String(message).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     const $toast = $(`
       <div id="${id}" class="toast toast-${type}">
         <span class="toast-icon">${icons[type]}</span>
-        <span>${message}</span>
+        <span>${safeMsg}</span>
       </div>
     `);
     if (!$('#toast-container').length) {

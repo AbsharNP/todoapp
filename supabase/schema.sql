@@ -388,10 +388,9 @@ CREATE POLICY "Members can create diagrams"
   );
 
 DROP POLICY IF EXISTS "Members or public can edit diagrams" ON diagrams;
-CREATE POLICY "Members or public can edit diagrams"
+CREATE POLICY "Members can edit diagrams"
   ON diagrams FOR UPDATE USING (
     workspace_id IN (SELECT get_my_workspace_ids())
-    OR is_public = true
   );
 
 DROP POLICY IF EXISTS "Members can delete diagrams" ON diagrams;

@@ -74,8 +74,13 @@ const TEAM = {
     `).join(''));
 
     $('.revoke-invite').on('click', async function () {
-      const id = $(this).data('id');
-      if (!confirm('Revoke this invite?')) return;
+      const $btn = $(this);
+      if (!$btn.data('confirming')) {
+        $btn.data('confirming', true).text('Sure?');
+        setTimeout(() => $btn.data('confirming', false).text('✕'), 3000);
+        return;
+      }
+      const id = $btn.data('id');
       await supabase.from('invites').delete().eq('id', id);
       TEAM.loadInvites();
       APP.toast('Invite revoked', 'info');
@@ -142,8 +147,9 @@ $(document).ready(function () {
   // Generate workspace join code (expires in 7 days)
   $('#btn-regen-join-code').on('click', async function () {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const bytes = crypto.getRandomValues(new Uint8Array(6));
     let code = '';
-    for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+    for (let i = 0; i < 6; i++) code += chars[bytes[i] % chars.length];
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
     const { error } = await supabase

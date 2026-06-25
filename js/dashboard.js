@@ -23,6 +23,15 @@ $(document).ready(async function () {
     $(this).attr('data-tooltip', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
   });
 
+  // Mobile sidebar drawer (hamburger + backdrop)
+  $('#btn-mobile-menu').on('click', function (e) {
+    e.stopPropagation();
+    $('.app-layout').toggleClass('sidebar-open');
+  });
+  $('#sidebar-backdrop').on('click', () => $('.app-layout').removeClass('sidebar-open'));
+  $('.sidebar .nav-item').on('click', () => $('.app-layout').removeClass('sidebar-open'));
+  $(document).on('keydown', e => { if (e.key === 'Escape') $('.app-layout').removeClass('sidebar-open'); });
+
   const session = await APP.init();
   if (!session) { window.location.href = 'index.html'; return; }
 
@@ -38,6 +47,12 @@ $(document).ready(async function () {
     const panel = $(this).data('panel');
     switchPanel(panel);
   });
+
+  // Open a specific panel when arriving via a hash link (e.g. dashboard.html#team)
+  const hashPanel = (location.hash || '').replace('#', '');
+  if (['overview', 'diagrams', 'team', 'settings'].includes(hashPanel)) {
+    switchPanel(hashPanel);
+  }
 
   // Workspace switcher
   $('#ws-switcher').on('click', function (e) {
@@ -88,6 +103,12 @@ $(document).ready(async function () {
   $('#btn-create-todo').on('click', createTodo);
   $('#btn-save-todo').on('click', saveTodoDetail);
   $('#btn-delete-todo').on('click', deleteTodo);
+
+  // Comments
+  $('#btn-add-comment').on('click', addComment);
+  $('#comment-input').on('keydown', function (e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addComment(); }
+  });
 
   // Diagrams
   $('#btn-new-flowchart').on('click', () => openNewDiagramModal('flowchart'));
@@ -275,6 +296,7 @@ async function loadAllData() {
   await loadTodos();
   renderOverview();
   renderDiagrams();
+  subscribeRealtime();
 }
 
 // ── Lists ─────────────────────────────────────────────────────
@@ -395,7 +417,7 @@ function renderAssigneeOptions() {
 
 // ── Todos ─────────────────────────────────────────────────────
 async function loadTodos() {
-  if (!allLists.length) { allTodos = []; renderKanban(); return; }
+  if (!allLists.length) { allTodos = []; commentCounts = {}; renderKanban(); return; }
 
   const listIds = allLists.map(l => l.id);
   const { data } = await supabase
@@ -404,7 +426,20 @@ async function loadTodos() {
     .in('list_id', listIds)
     .order('position');
   allTodos = data || [];
+  await loadCommentCounts();
   renderKanban();
+}
+
+// Map of todo_id → number of comments, for the card indicator
+let commentCounts = {};
+
+async function loadCommentCounts() {
+  const ids = allTodos.map(t => t.id);
+  if (!ids.length) { commentCounts = {}; return; }
+  const { data } = await supabase.from('todo_comments').select('todo_id').in('todo_id', ids);
+  const counts = {};
+  (data || []).forEach(c => { counts[c.todo_id] = (counts[c.todo_id] || 0) + 1; });
+  commentCounts = counts;
 }
 
 function getFilteredTodos() {
@@ -447,6 +482,83 @@ function renderKanban() {
     const newStatus = todo.status === 'done' ? 'todo' : 'done';
     updateTodoStatus(id, newStatus);
   });
+
+  bindDragAndDrop();
+}
+
+// ── Drag-to-reorder kanban ────────────────────────────────────
+let draggedTodoId = null;
+
+function bindDragAndDrop() {
+  $('.task-card').off('dragstart dragend').on('dragstart', function (e) {
+    draggedTodoId = $(this).data('id');
+    e.originalEvent.dataTransfer.effectAllowed = 'move';
+    e.originalEvent.dataTransfer.setData('text/plain', String(draggedTodoId));
+    setTimeout(() => $(this).addClass('dragging'), 0);
+  }).on('dragend', function () {
+    $(this).removeClass('dragging');
+    $('.kanban-col-body').removeClass('drag-over');
+    draggedTodoId = null;
+  });
+
+  $('.kanban-col-body').off('dragover dragleave drop')
+    .on('dragover', function (e) {
+      e.preventDefault();
+      e.originalEvent.dataTransfer.dropEffect = 'move';
+      $(this).addClass('drag-over');
+      const dragging = document.querySelector('.task-card.dragging');
+      if (!dragging) return;
+      const afterEl = getDragAfterElement(this, e.originalEvent.clientY);
+      if (afterEl == null) this.appendChild(dragging);
+      else this.insertBefore(dragging, afterEl);
+    })
+    .on('dragleave', function (e) {
+      if (!this.contains(e.originalEvent.relatedTarget)) $(this).removeClass('drag-over');
+    })
+    .on('drop', function (e) {
+      e.preventDefault();
+      $(this).removeClass('drag-over');
+      persistKanbanOrder();
+    });
+}
+
+// Find the card the dragged element should be inserted before, based on cursor Y
+function getDragAfterElement(container, y) {
+  const els = [...container.querySelectorAll('.task-card:not(.dragging)')];
+  return els.reduce((closest, child) => {
+    const box = child.getBoundingClientRect();
+    const offset = y - box.top - box.height / 2;
+    if (offset < 0 && offset > closest.offset) return { offset, element: child };
+    return closest;
+  }, { offset: -Infinity, element: null }).element;
+}
+
+// Read the DOM card order in each column, update local state + persist changes
+async function persistKanbanOrder() {
+  const updates = [];
+  ['todo', 'in_progress', 'done'].forEach(status => {
+    const ids = [...document.querySelectorAll(`#col-${status} .task-card`)].map(el => $(el).data('id'));
+    ids.forEach((id, idx) => {
+      const todo = allTodos.find(t => t.id === id);
+      if (!todo) return;
+      if (todo.position !== idx || todo.status !== status) {
+        todo.position = idx;
+        todo.status = status;
+        updates.push({ id, position: idx, status });
+      }
+    });
+    $(`#count-${status}`).text(ids.length);
+  });
+
+  // Update the pending badge + overview without a full re-render (DOM is already correct)
+  const pending = getFilteredTodos().filter(t => t.status !== 'done').length;
+  if (pending > 0) $('#badge-todos').text(pending).show(); else $('#badge-todos').hide();
+  renderOverview();
+
+  if (!updates.length) return;
+  await Promise.all(updates.map(u =>
+    supabase.from('todos').update({ position: u.position, status: u.status }).eq('id', u.id)
+  ));
 }
 
 function renderTaskCard(todo) {
@@ -456,9 +568,10 @@ function renderTaskCard(todo) {
   const assignee = allMembers.find(m => m.user_id === todo.assigned_to);
   const assigneeName = assignee?.profiles?.display_name;
   const priority = escHtml(todo.priority);
+  const commentCount = commentCounts[todo.id] || 0;
 
   return `
-    <div class="task-card" data-id="${escHtml(todo.id)}">
+    <div class="task-card" data-id="${escHtml(todo.id)}" draggable="true">
       <div class="task-card-priority ${priority}"></div>
       <div class="task-card-header">
         <div class="task-check ${isDone ? 'checked' : ''}"></div>
@@ -467,6 +580,7 @@ function renderTaskCard(todo) {
       <div class="task-card-meta">
         <span class="badge badge-${priority}">${priority}</span>
         ${todo.due_date ? `<span class="task-due ${isOverdue ? 'overdue' : ''}">📅 ${APP.formatDate(todo.due_date)}</span>` : ''}
+        ${commentCount ? `<span class="task-comments" data-tooltip="${commentCount} comment${commentCount > 1 ? 's' : ''}">💬 ${commentCount}</span>` : ''}
       </div>
       <div class="task-card-footer">
         ${list ? `<span class="task-list-badge" style="background:${safeCssColor(list.color)}">${escHtml(list.name)}</span>` : '<span></span>'}
@@ -537,6 +651,12 @@ function openTodoDetail(id) {
   $('#detail-priority').val(todo.priority);
   $('#detail-due').val(todo.due_date || '');
   $('#detail-assignee').val(todo.assigned_to || '');
+
+  currentDetailTodoId = id;
+  $('#comment-input').val('');
+  $('#comments-list').html('<div class="comments-empty">Loading…</div>');
+  loadComments(id);
+
   openModal('modal-todo-detail');
 }
 
@@ -580,8 +700,132 @@ async function deleteTodo() {
   APP.toast('Task deleted', 'info');
 }
 
+// ── Realtime sync ─────────────────────────────────────────────
+let realtimeChannel = null;
+
+function subscribeRealtime() {
+  if (realtimeChannel) { supabase.removeChannel(realtimeChannel); realtimeChannel = null; }
+  if (!currentWsId) return;
+
+  realtimeChannel = supabase
+    .channel('ws-' + currentWsId)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'todos' }, handleTodoChange)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'todo_lists' }, handleListChange)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'todo_comments' }, handleCommentChange)
+    .subscribe();
+}
+
+function listInWorkspace(listId) {
+  return allLists.some(l => l.id === listId);
+}
+
+// A todo was inserted/updated/deleted somewhere — reconcile local state.
+// All handlers are idempotent so our own echoed changes are harmless.
+function handleTodoChange(payload) {
+  if (payload.eventType === 'DELETE') {
+    const before = allTodos.length;
+    allTodos = allTodos.filter(t => t.id !== payload.old.id);
+    if (allTodos.length !== before) { renderKanban(); renderOverview(); }
+    return;
+  }
+  const rec = payload.new;
+  if (!listInWorkspace(rec.list_id)) return; // belongs to a different workspace
+  const idx = allTodos.findIndex(t => t.id === rec.id);
+  if (idx === -1) allTodos.push(rec);
+  else allTodos[idx] = { ...allTodos[idx], ...rec };
+  allTodos.sort((a, b) => (a.position || 0) - (b.position || 0));
+  renderKanban();
+  renderOverview();
+}
+
+async function handleListChange() {
+  await loadLists();
+  await loadTodos();
+  renderOverview();
+}
+
+function handleCommentChange(payload) {
+  // 1) Refresh the open comment thread, if any
+  if (currentDetailTodoId && $('#modal-todo-detail').hasClass('open')) {
+    const todoId = (payload.new && payload.new.todo_id) || null;
+    if (todoId === null || todoId === currentDetailTodoId) loadComments(currentDetailTodoId);
+  }
+
+  // 2) Keep the card comment-count badges accurate
+  if (payload.eventType === 'INSERT' && payload.new) {
+    const tid = payload.new.todo_id;
+    if (allTodos.some(t => t.id === tid)) {
+      commentCounts[tid] = (commentCounts[tid] || 0) + 1;
+      renderKanban();
+    }
+  } else {
+    // DELETE payloads may omit todo_id — recount to stay accurate
+    loadCommentCounts().then(renderKanban);
+  }
+}
+
+// ── Comments ──────────────────────────────────────────────────
+let currentDetailTodoId = null;
+
+async function loadComments(todoId) {
+  const { data, error } = await supabase
+    .from('todo_comments')
+    .select('*, profiles(display_name)')
+    .eq('todo_id', todoId)
+    .order('created_at', { ascending: true });
+  if (error) { $('#comments-list').html('<div class="comments-empty">Could not load comments.</div>'); return; }
+  if (currentDetailTodoId !== todoId) return; // modal moved on while loading
+  renderComments(data || []);
+}
+
+function renderComments(comments) {
+  if (!comments.length) {
+    $('#comments-list').html('<div class="comments-empty">No comments yet. Start the discussion.</div>');
+    return;
+  }
+  $('#comments-list').html(comments.map(c => {
+    const name = c.profiles?.display_name || 'Unknown';
+    const mine = c.user_id === APP.currentUser.id;
+    return `
+      <div class="comment-item">
+        ${APP.avatar(name, 28)}
+        <div class="comment-body">
+          <div class="comment-meta">
+            <span class="comment-author">${escHtml(name)}</span>
+            <span class="comment-time">${APP.formatDate(c.created_at)}</span>
+          </div>
+          <div class="comment-text">${escHtml(c.body)}</div>
+        </div>
+        ${mine ? `<button class="comment-delete" data-id="${escHtml(c.id)}" data-tooltip="Delete comment">✕</button>` : ''}
+      </div>`;
+  }).join(''));
+
+  $('.comment-delete').off('click').on('click', async function () {
+    const id = $(this).data('id');
+    await supabase.from('todo_comments').delete().eq('id', id);
+    loadComments(currentDetailTodoId);
+  });
+
+  const el = document.getElementById('comments-list');
+  if (el) el.scrollTop = el.scrollHeight;
+}
+
+async function addComment() {
+  const body = $('#comment-input').val().trim();
+  if (!body || !currentDetailTodoId) return;
+  const { error } = await supabase.from('todo_comments').insert({
+    todo_id: currentDetailTodoId,
+    user_id: APP.currentUser.id,
+    body
+  });
+  if (error) return APP.toast('Failed to post comment', 'error');
+  $('#comment-input').val('');
+  loadComments(currentDetailTodoId);
+}
+
 // ── Overview ──────────────────────────────────────────────────
 function renderOverview() {
+  if (!document.getElementById('overview-recent')) return; // not on this page
   const total = allTodos.length;
   const inProgress = allTodos.filter(t => t.status === 'in_progress').length;
   const done = allTodos.filter(t => t.status === 'done').length;
@@ -623,6 +867,7 @@ function renderOverview() {
 
 // ── Diagrams ──────────────────────────────────────────────────
 async function renderDiagrams() {
+  if (!document.getElementById('diagrams-grid')) return; // not on this page
   const { data } = await supabase
     .from('diagrams')
     .select('*')

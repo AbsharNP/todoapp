@@ -4,20 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-  <title>TaskFlow Dashboard – Kanban Tasks, Diagrams & Team Management</title>
-  <meta name="description" content="Manage your tasks with kanban boards, build ER diagrams and flowcharts, and collaborate with your team — all in one free workspace.">
+  <title>Tasks – TaskFlow Kanban Board</title>
+  <meta name="description" content="Manage your tasks on a drag-and-drop kanban board with lists, priorities, due dates, assignees, comments and real-time sync.">
   <meta name="robots" content="index, follow">
-  <link rel="canonical" href="https://taskflow-gules-iota.vercel.app/dashboard.html">
+  <link rel="canonical" href="https://taskflow-gules-iota.vercel.app/tasks.html">
 
   <meta property="og:type" content="website">
-  <meta property="og:url" content="https://taskflow-gules-iota.vercel.app/dashboard.html">
+  <meta property="og:url" content="https://taskflow-gules-iota.vercel.app/tasks.html">
   <meta property="og:site_name" content="TaskFlow">
-  <meta property="og:title" content="TaskFlow – Free Task Manager & Diagram Builder">
-  <meta property="og:description" content="Manage tasks with kanban boards, build ER diagrams and flowcharts, and collaborate with your team for free.">
-
-  <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="TaskFlow Dashboard">
-  <meta name="twitter:description" content="Free task management, kanban boards, ER diagrams and flowcharts for teams.">
+  <meta property="og:title" content="TaskFlow Tasks – Kanban Board">
+  <meta property="og:description" content="Drag-and-drop kanban tasks with lists, priorities, assignees and comments.">
 
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="preconnect" href="https://code.jquery.com" crossorigin>
@@ -52,25 +48,25 @@
     <nav class="sidebar-nav">
       <div class="sidebar-section">
         <div class="sidebar-section-title">Main</div>
-        <button class="nav-item active" data-panel="overview" data-tooltip="Dashboard overview & stats">
+        <a class="nav-item" href="dashboard.html" data-tooltip="Dashboard overview & stats">
           <span class="nav-icon">🏠</span> <span>Overview</span>
-        </button>
-        <a class="nav-item" href="tasks.html" data-tooltip="View and manage tasks">
+        </a>
+        <a class="nav-item active" href="tasks.html" data-tooltip="View and manage tasks">
           <span class="nav-icon">✅</span> <span>Tasks</span>
           <span class="nav-badge" id="badge-todos" style="display:none"></span>
         </a>
-        <button class="nav-item" data-panel="diagrams" data-tooltip="View and create diagrams">
+        <a class="nav-item" href="dashboard.html#diagrams" data-tooltip="View and create diagrams">
           <span class="nav-icon">🗺️</span> <span>Diagrams</span>
-        </button>
+        </a>
       </div>
       <div class="sidebar-section">
         <div class="sidebar-section-title">Workspace</div>
-        <button class="nav-item" data-panel="team" data-tooltip="Manage team members">
+        <a class="nav-item" href="dashboard.html#team" data-tooltip="Manage team members">
           <span class="nav-icon">👥</span> <span>Team</span>
-        </button>
-        <button class="nav-item" data-panel="settings" data-tooltip="Workspace settings">
+        </a>
+        <a class="nav-item" href="dashboard.html#settings" data-tooltip="Workspace settings">
           <span class="nav-icon">⚙️</span> <span>Settings</span>
-        </button>
+        </a>
       </div>
       <div class="sidebar-collapse-section">
         <button class="nav-item sidebar-collapse-btn" id="btn-toggle-sidebar" data-tooltip="Collapse sidebar">
@@ -112,109 +108,64 @@
     <!-- Header -->
     <header class="app-header">
       <button class="mobile-menu-btn" id="btn-mobile-menu" aria-label="Open menu">☰</button>
-      <span class="header-title" id="panel-title">Overview</span>
+      <span class="header-title" id="panel-title">Tasks</span>
       <div class="header-actions" id="header-actions"></div>
     </header>
 
     <!-- Content -->
     <div class="app-content">
 
-      <!-- ── Overview Panel ─────────────────────────────────── -->
-      <div class="panel active" id="panel-overview">
-        <div class="stats-grid">
-          <div class="stat-card">
-            <div class="stat-icon" style="background:var(--accent-light)">📋</div>
-            <div class="stat-value" id="stat-total">0</div>
-            <div class="stat-label">Total Tasks</div>
+      <!-- ── Tasks Panel ─────────────────────────────────────── -->
+      <div class="panel active" id="panel-todos">
+        <div class="kanban-header">
+          <div>
+            <h2 style="font-size:18px;margin-bottom:4px">Tasks</h2>
+            <div class="list-selector" id="list-selector">
+              <button class="list-chip active" data-list="all" data-tooltip="Show tasks from all lists">All Lists</button>
+            </div>
           </div>
-          <div class="stat-card">
-            <div class="stat-icon" style="background:var(--blue-bg)">🔄</div>
-            <div class="stat-value" id="stat-in-progress">0</div>
-            <div class="stat-label">In Progress</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-icon" style="background:var(--green-bg)">✅</div>
-            <div class="stat-value" id="stat-done">0</div>
-            <div class="stat-label">Completed</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-icon" style="background:var(--red-bg)">⚠️</div>
-            <div class="stat-value" id="stat-overdue">0</div>
-            <div class="stat-label">Overdue</div>
+          <div class="kanban-controls">
+            <button class="btn btn-ghost btn-sm" id="btn-export-todos" data-tooltip="Export tasks as JSON">↓ Export</button>
+            <button class="btn btn-ghost btn-sm" id="btn-import-todos" data-tooltip="Import tasks from JSON">↑ Import</button>
+            <input type="file" id="input-import-todos" accept=".json" style="display:none">
+            <button class="btn btn-secondary btn-sm" id="btn-new-list" data-tooltip="Create a new task list">+ New List</button>
+            <button class="btn btn-primary btn-sm" id="btn-new-todo" data-tooltip="Add a new task">+ Add Task</button>
           </div>
         </div>
-
-        <div class="section-header">
-          <h3 class="section-title">Recent Tasks</h3>
-          <a class="btn btn-ghost btn-sm" href="tasks.html" data-tooltip="View all tasks">View all →</a>
-        </div>
-        <div id="overview-recent"></div>
-
-        <div class="section-header" style="margin-top:28px">
-          <h3 class="section-title">Team Members</h3>
-          <button class="btn btn-ghost btn-sm" data-panel="team" data-tooltip="Manage team members">Manage →</button>
-        </div>
-        <div id="overview-team" class="team-grid"></div>
-      </div>
-
-      <!-- ── Diagrams Panel ──────────────────────────────────── -->
-      <div class="panel" id="panel-diagrams">
-        <div class="section-header">
-          <h2 class="section-title">Diagrams</h2>
-          <div class="section-actions">
-            <button class="btn btn-ghost btn-sm" id="btn-import-diagram" data-tooltip="Import diagram from JSON">↑ Import</button>
-            <input type="file" id="input-import-diagram" accept=".json" style="display:none">
-            <button class="btn btn-secondary btn-sm" id="btn-new-flowchart" data-tooltip="Create a new flowchart">+ Flowchart</button>
-            <button class="btn btn-primary btn-sm" id="btn-new-er" data-tooltip="Create a new ER diagram">+ ER Diagram</button>
+        <div class="kanban-board" id="kanban-board">
+          <div class="kanban-col" data-status="todo">
+            <div class="kanban-col-header">
+              <div class="kanban-col-title">
+                <span class="col-dot" style="background:var(--text-3)"></span>
+                Todo
+                <span class="col-count" id="count-todo">0</span>
+              </div>
+            </div>
+            <div class="kanban-col-body" id="col-todo"></div>
+            <button class="kanban-col-add" data-status="todo" id="add-todo-btn" data-tooltip="Add task to Todo">＋ Add task</button>
           </div>
-        </div>
-        <div id="diagrams-grid" class="diagrams-grid"></div>
-      </div>
-
-      <!-- ── Team Panel ──────────────────────────────────────── -->
-      <div class="panel" id="panel-team">
-        <div class="section-header">
-          <h2 class="section-title">Team Members</h2>
-          <button class="btn btn-primary btn-sm" id="btn-invite" data-tooltip="Invite a new team member">+ Invite Member</button>
-        </div>
-        <div id="members-list" class="team-grid" style="margin-bottom:28px"></div>
-
-        <div class="section-header">
-          <h3 class="section-title" style="font-size:14px">Pending Invites</h3>
-        </div>
-        <div id="invites-list" class="team-grid"></div>
-
-        <div class="section-header" style="margin-top:28px">
-          <h3 class="section-title" style="font-size:14px">Join Code</h3>
-          <div style="display:flex;gap:8px">
-            <button class="btn btn-ghost btn-sm" id="btn-join-ws-from-team" data-tooltip="Join a workspace using a 6-character code">Join by Code</button>
-            <button class="btn btn-secondary btn-sm" id="btn-regen-join-code" data-tooltip="Generate a shareable 6-character code that expires in 7 days">Generate Code</button>
+          <div class="kanban-col" data-status="in_progress">
+            <div class="kanban-col-header">
+              <div class="kanban-col-title">
+                <span class="col-dot" style="background:var(--blue)"></span>
+                In Progress
+                <span class="col-count" id="count-in_progress">0</span>
+              </div>
+            </div>
+            <div class="kanban-col-body" id="col-in_progress"></div>
+            <button class="kanban-col-add" data-status="in_progress" data-tooltip="Add task to In Progress">＋ Add task</button>
           </div>
-        </div>
-        <div id="join-code-section">
-          <p style="font-size:12px;color:var(--text-3)">No join code yet. Generate one so teammates can join without an email invite.</p>
-        </div>
-      </div>
-
-      <!-- ── Settings Panel ──────────────────────────────────── -->
-      <div class="panel" id="panel-settings">
-        <h2 class="section-title" style="margin-bottom:24px">Workspace Settings</h2>
-        <div class="card" style="max-width:480px">
-          <div class="form-group" style="margin-bottom:16px">
-            <label class="form-label">Workspace Name</label>
-            <input type="text" class="input" id="ws-name-input" placeholder="My Workspace">
+          <div class="kanban-col" data-status="done">
+            <div class="kanban-col-header">
+              <div class="kanban-col-title">
+                <span class="col-dot" style="background:var(--green)"></span>
+                Done
+                <span class="col-count" id="count-done">0</span>
+              </div>
+            </div>
+            <div class="kanban-col-body" id="col-done"></div>
+            <button class="kanban-col-add" data-status="done" data-tooltip="Add task to Done">＋ Add task</button>
           </div>
-          <div class="form-group" style="margin-bottom:20px">
-            <label class="form-label">Description</label>
-            <textarea class="textarea" id="ws-desc-input" placeholder="What does your team work on?"></textarea>
-          </div>
-          <button class="btn btn-primary" id="btn-save-workspace" data-tooltip="Save workspace settings">Save Changes</button>
-        </div>
-
-        <div class="card" style="max-width:480px;margin-top:16px;border-color:rgba(248,113,113,0.2)">
-          <h4 style="color:var(--red);margin-bottom:8px">Danger Zone</h4>
-          <p style="font-size:13px;color:var(--text-2);margin-bottom:16px">Once you delete a workspace, there is no going back.</p>
-          <button class="btn btn-danger" id="btn-delete-workspace" data-tooltip="Permanently delete this workspace">Delete Workspace</button>
         </div>
       </div>
 
@@ -246,6 +197,98 @@
     <div class="modal-footer">
       <button class="btn btn-ghost" data-close="modal-new-workspace">Cancel</button>
       <button class="btn btn-primary" id="btn-create-workspace">Create Workspace</button>
+    </div>
+  </div>
+</div>
+
+<!-- New List -->
+<div class="modal-backdrop" id="modal-new-list">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Create List</h3>
+      <button class="modal-close" data-close="modal-new-list" data-tooltip="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">List Name</label>
+        <input type="text" class="input" id="new-list-name" placeholder="e.g. Backend, Design, Marketing">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Color</label>
+        <div class="color-picker" id="list-color-picker">
+          <div class="color-swatch selected" data-color="#6366f1" style="background:#6366f1"></div>
+          <div class="color-swatch" data-color="#8b5cf6" style="background:#8b5cf6"></div>
+          <div class="color-swatch" data-color="#ec4899" style="background:#ec4899"></div>
+          <div class="color-swatch" data-color="#f59e0b" style="background:#f59e0b"></div>
+          <div class="color-swatch" data-color="#10b981" style="background:#10b981"></div>
+          <div class="color-swatch" data-color="#3b82f6" style="background:#3b82f6"></div>
+          <div class="color-swatch" data-color="#ef4444" style="background:#ef4444"></div>
+          <div class="color-swatch" data-color="#14b8a6" style="background:#14b8a6"></div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" data-close="modal-new-list">Cancel</button>
+      <button class="btn btn-primary" id="btn-create-list">Create List</button>
+    </div>
+  </div>
+</div>
+
+<!-- New Todo -->
+<div class="modal-backdrop" id="modal-new-todo">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <h3>Add Task</h3>
+      <button class="modal-close" data-close="modal-new-todo" data-tooltip="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Task Title</label>
+        <input type="text" class="input" id="todo-title" placeholder="What needs to be done?">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Description</label>
+        <textarea class="textarea" id="todo-desc" placeholder="Add details..."></textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">List</label>
+          <select class="select" id="todo-list"></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Status</label>
+          <select class="select" id="todo-status">
+            <option value="todo">Todo</option>
+            <option value="in_progress">In Progress</option>
+            <option value="done">Done</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Priority</label>
+          <select class="select" id="todo-priority">
+            <option value="low">Low</option>
+            <option value="medium" selected>Medium</option>
+            <option value="high">High</option>
+            <option value="urgent">Urgent</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Due Date</label>
+          <input type="date" class="input" id="todo-due">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Assign To</label>
+        <select class="select" id="todo-assignee">
+          <option value="">Unassigned</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" data-close="modal-new-todo">Cancel</button>
+      <button class="btn btn-primary" id="btn-create-todo">Add Task</button>
     </div>
   </div>
 </div>
@@ -317,41 +360,6 @@
   </div>
 </div>
 
-<!-- Invite Member -->
-<div class="modal-backdrop" id="modal-invite">
-  <div class="modal">
-    <div class="modal-header">
-      <h3>Invite Team Member</h3>
-      <button class="modal-close" data-close="modal-invite" data-tooltip="Close">✕</button>
-    </div>
-    <div class="modal-body">
-      <div class="form-group">
-        <label class="form-label">Email Address</label>
-        <input type="email" class="input" id="invite-email" placeholder="colleague@example.com">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Role</label>
-        <select class="select" id="invite-role">
-          <option value="member">Member – can view and edit tasks</option>
-          <option value="admin">Admin – can manage members and settings</option>
-        </select>
-      </div>
-      <div id="invite-result" style="display:none">
-        <div class="divider-text">Invite Link Generated</div>
-        <p style="font-size:12px;color:var(--text-2);margin-bottom:8px">Share this link with your teammate:</p>
-        <div class="invite-link-box">
-          <span class="invite-link-text" id="invite-link-text"></span>
-          <button class="btn btn-secondary btn-sm" id="btn-copy-link" data-tooltip="Copy invite link to clipboard">Copy</button>
-        </div>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" data-close="modal-invite">Close</button>
-      <button class="btn btn-primary" id="btn-send-invite" data-tooltip="Generate a shareable invite link">Generate Invite Link</button>
-    </div>
-  </div>
-</div>
-
 <!-- Join Workspace by Code -->
 <div class="modal-backdrop" id="modal-join-workspace">
   <div class="modal">
@@ -371,26 +379,6 @@
     <div class="modal-footer">
       <button class="btn btn-ghost" data-close="modal-join-workspace">Cancel</button>
       <button class="btn btn-primary" id="btn-submit-join-ws">Join Workspace</button>
-    </div>
-  </div>
-</div>
-
-<!-- Name New Diagram -->
-<div class="modal-backdrop" id="modal-new-diagram">
-  <div class="modal">
-    <div class="modal-header">
-      <h3 id="modal-new-diagram-title">New Diagram</h3>
-      <button class="modal-close" data-close="modal-new-diagram" data-tooltip="Close">✕</button>
-    </div>
-    <div class="modal-body">
-      <div class="form-group">
-        <label class="form-label">Diagram Name</label>
-        <input type="text" class="input" id="new-diagram-name" placeholder="e.g. My Flow" maxlength="100">
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" data-close="modal-new-diagram">Cancel</button>
-      <button class="btn btn-primary" id="btn-create-diagram">Create</button>
     </div>
   </div>
 </div>

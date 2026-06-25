@@ -19,16 +19,17 @@ A collaborative task management app with a kanban board, ER/flowchart diagram bu
 ```
 /
 ├── index.html          # Login / signup page
-├── dashboard.html      # Main app (todos, team, diagrams, settings)
+├── dashboard.html      # Main app shell (overview, diagrams, team, settings)
+├── tasks.html          # Kanban tasks page (board, lists, task + comment modals)
 ├── diagram.html        # Full-screen diagram editor
-├── invite.html         # Accept team invite (not yet created)
+├── invite.html         # Accept team invite
 ├── css/
 │   ├── style.css       # Global design system (vars, components, light/dark, sidebar)
 │   └── diagram.css     # Diagram editor styles + read-only / inline text editor styles
 ├── js/
 │   ├── config.js       # Supabase client + APP helpers + APP.theme (light/dark)
 │   ├── auth.js         # Login / signup logic
-│   ├── dashboard.js    # Todos, kanban, workspace CRUD, overview stats, sidebar collapse
+│   ├── dashboard.js    # Shared app logic for dashboard.html + tasks.html: workspaces, lists, kanban (drag-reorder), todos, comments, realtime sync, overview stats, diagrams, sidebar
 │   ├── team.js         # Member listing, invite link generation, join-by-code modal
 │   └── diagram.js      # SVG diagram builder — nodes, edges, tools, read-only mode, inline text editor
 ├── supabase/

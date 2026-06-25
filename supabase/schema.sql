@@ -473,3 +473,71 @@ BEGIN
   ) r;
   RETURN result;
 END; $$;
+
+-- ============================================================
+-- Feature: Task comments + Realtime sync
+-- ============================================================
+
+-- ── Task comments ─────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS todo_comments (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  todo_id UUID REFERENCES todos(id) ON DELETE CASCADE NOT NULL,
+  user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  body TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_todo_comments_todo ON todo_comments(todo_id);
+
+-- FK to profiles so PostgREST can embed the author's display name
+ALTER TABLE todo_comments
+  DROP CONSTRAINT IF EXISTS fk_todo_comments_profiles,
+  ADD CONSTRAINT fk_todo_comments_profiles
+    FOREIGN KEY (user_id) REFERENCES profiles(id) ON DELETE SET NULL;
+
+GRANT ALL ON todo_comments TO anon, authenticated, service_role;
+
+ALTER TABLE todo_comments ENABLE ROW LEVEL SECURITY;
+
+-- View comments on todos in workspaces you belong to
+DROP POLICY IF EXISTS "Members can view comments" ON todo_comments;
+CREATE POLICY "Members can view comments"
+  ON todo_comments FOR SELECT USING (
+    todo_id IN (
+      SELECT t.id FROM todos t
+      JOIN todo_lists tl ON tl.id = t.list_id
+      WHERE tl.workspace_id IN (SELECT get_my_workspace_ids())
+    )
+  );
+
+-- Add a comment (must be the author + a member of the owning workspace)
+DROP POLICY IF EXISTS "Members can add comments" ON todo_comments;
+CREATE POLICY "Members can add comments"
+  ON todo_comments FOR INSERT WITH CHECK (
+    user_id = auth.uid()
+    AND todo_id IN (
+      SELECT t.id FROM todos t
+      JOIN todo_lists tl ON tl.id = t.list_id
+      WHERE tl.workspace_id IN (SELECT get_my_workspace_ids())
+    )
+  );
+
+-- Only the author can delete their own comment
+DROP POLICY IF EXISTS "Authors can delete own comments" ON todo_comments;
+CREATE POLICY "Authors can delete own comments"
+  ON todo_comments FOR DELETE USING (user_id = auth.uid());
+
+-- ── Realtime ──────────────────────────────────────────────────
+-- Add the collaborative tables to the realtime publication.
+-- Wrapped in exception blocks so re-running the schema is safe.
+DO $$ BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE todos;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE todo_lists;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE todo_comments;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;

@@ -23,13 +23,29 @@ let panStart = { x: 0, y: 0 };
 let isDragging = false;
 let dragNode = null;
 let dragOffset = { x: 0, y: 0 };
+let dragHistoryPushed = false;
 let drawingEdge = null;
 let selectedId = null;
 let editingErNodeId = null;
 let saveTimeout = null;
+let snapEdgeTo = null;    // { nodeId, port, pos } — nearest port while drawing an edge
+let isResizing = false;
+let resizeNode = null;
+let resizeHandle = '';     // 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w'
+let resizeStartPos = { x: 0, y: 0 };
+let resizeStartGeom = { x: 0, y: 0, w: 0, h: 0 };
+let isDraggingBend = false;
+let bendEdge = null;
+let bendNaturalMid = { x: 0, y: 0 }; // cached base midpoint for current bend drag
+let undoStack = [];
+let redoStack = [];
+let clipboard = null;
 
 const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 3;
+const SNAP_THRESHOLD = 8;  // diagram-space px for alignment snap while dragging
+const PORT_SNAP_DIST = 30; // diagram-space px for port snap while connecting
+const MIN_NODE_SIZE = 30;  // minimum width and height for any node
 const NODE_DEFAULTS = {
   start:     { w: 130, h: 44, color: '#22d3a0', label: 'Start' },
   end:       { w: 130, h: 44, color: '#f87171', label: 'End' },
@@ -200,17 +216,74 @@ function scheduleSave() {
   saveTimeout = setTimeout(saveDiagram, 2000);
 }
 
+// ── Undo / Redo ────────────────────────────────────────────────
+function pushHistory() {
+  if (isReadOnly) return;
+  undoStack.push({ nodes: JSON.parse(JSON.stringify(nodes)), edges: JSON.parse(JSON.stringify(edges)) });
+  if (undoStack.length > 50) undoStack.shift();
+  redoStack = [];
+}
+
+function applyHistoryState(state) {
+  nodes = state.nodes; edges = state.edges;
+  nextId = Math.max(0, ...nodes.map(n => +n.id.slice(1) || 0), ...edges.map(e => +e.id.slice(1) || 0)) + 1;
+  selectNode(null); renderAll(); scheduleSave();
+}
+
+function undo() {
+  if (!undoStack.length) { APP.toast('Nothing to undo', 'info'); return; }
+  redoStack.push({ nodes: JSON.parse(JSON.stringify(nodes)), edges: JSON.parse(JSON.stringify(edges)) });
+  applyHistoryState(undoStack.pop());
+}
+
+function redo() {
+  if (!redoStack.length) { APP.toast('Nothing to redo', 'info'); return; }
+  undoStack.push({ nodes: JSON.parse(JSON.stringify(nodes)), edges: JSON.parse(JSON.stringify(edges)) });
+  applyHistoryState(redoStack.pop());
+}
+
+// ── Clipboard ──────────────────────────────────────────────────
+function copySelected() {
+  const node = nodes.find(n => n.id === selectedId);
+  if (!node) return;
+  clipboard = JSON.parse(JSON.stringify(node));
+  APP.toast('Copied', 'info');
+}
+
+function cutSelected() {
+  if (isReadOnly) return;
+  const node = nodes.find(n => n.id === selectedId);
+  if (!node) return;
+  clipboard = JSON.parse(JSON.stringify(node));
+  deleteSelected(); // deleteSelected pushes its own history
+  APP.toast('Cut', 'info');
+}
+
+function pasteClipboard() {
+  if (!clipboard || isReadOnly) return;
+  pushHistory();
+  const node = {
+    ...JSON.parse(JSON.stringify(clipboard)),
+    id: 'n' + nextId++,
+    x: clipboard.x + 30,
+    y: clipboard.y + 30
+  };
+  nodes.push(node); renderNode(node); selectNode(node.id); scheduleSave();
+}
+
 // ── Inline Text Editor ────────────────────────────────────────
 let textEditNode = null;
 
 function openTextEditor(node) {
-  // Close any open editor first (blur saves it)
   const existing = document.getElementById('inline-text-editor');
   if (existing) { existing.blur(); }
 
   textEditNode = node;
   const wrapper = document.getElementById('canvas-wrapper');
   const r = wrapper.getBoundingClientRect();
+
+  let histPushed = false;
+  const maybePush = () => { if (!histPushed) { pushHistory(); histPushed = true; } };
 
   const $ta = $('<textarea id="inline-text-editor"></textarea>')
     .css({
@@ -223,13 +296,14 @@ function openTextEditor(node) {
       fontSize:  Math.round(12 * scale) + 'px',
       caretColor: node.color
     })
-    .val(node.label === 'Add text here...' ? '' : node.label);
+    .val(node.type === 'text' && node.label === 'Add text here...' ? '' : node.label);
 
   $('body').append($ta);
-  $ta[0].setSelectionRange($ta.val().length, $ta.val().length);
+  $ta[0].setSelectionRange(0, $ta.val().length);
   $ta.focus();
 
   $ta.on('input', function () {
+    maybePush();
     node.label = $(this).val() || '';
     renderNode(node);
   });
@@ -237,7 +311,7 @@ function openTextEditor(node) {
   $ta.on('blur', function () {
     if (!textEditNode || textEditNode.id !== node.id) return;
     node.label = $(this).val() || '';
-    if (!node.label.trim()) node.label = '';
+    if (node.type === 'text' && !node.label.trim()) node.label = '';
     renderNode(node);
     renderEdgesForNode(node.id);
     scheduleSave();
@@ -247,7 +321,12 @@ function openTextEditor(node) {
 
   $ta.on('keydown', function (e) {
     e.stopPropagation();
-    if (e.key === 'Escape') $(this).blur();
+    if (e.key === 'Escape') { $(this).blur(); return; }
+    // Enter confirms for single-label nodes; Shift+Enter or text nodes allow newlines
+    if (e.key === 'Enter' && !e.shiftKey && node.type !== 'text') {
+      e.preventDefault();
+      $(this).blur();
+    }
   });
 }
 
@@ -271,6 +350,34 @@ function initCanvas() {
   const svg = document.getElementById('diagram-svg');
   const wrapper = document.getElementById('canvas-wrapper');
 
+  // Snap guide lines (live inside diagram-layer so they follow pan/zoom)
+  const snapLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  snapLayer.setAttribute('id', 'snap-guides-layer');
+  snapLayer.setAttribute('pointer-events', 'none');
+
+  const mkGuide = (id, attrs) => {
+    const el = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    el.setAttribute('id', id);
+    Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, v));
+    el.style.display = 'none';
+    return el;
+  };
+  snapLayer.appendChild(mkGuide('snap-guide-h', { x1: '-9999', x2: '9999', y1: '0', y2: '0', stroke: '#7c6af0', 'stroke-width': '1', 'stroke-dasharray': '5,3', 'stroke-opacity': '0.8' }));
+  snapLayer.appendChild(mkGuide('snap-guide-v', { x1: '0', x2: '0', y1: '-9999', y2: '9999', stroke: '#7c6af0', 'stroke-width': '1', 'stroke-dasharray': '5,3', 'stroke-opacity': '0.8' }));
+
+  // Port snap highlight ring (shown while connecting near a port)
+  const portHL = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  portHL.setAttribute('id', 'port-snap-highlight');
+  portHL.setAttribute('r', '9');
+  portHL.setAttribute('fill', 'rgba(124,106,240,0.2)');
+  portHL.setAttribute('stroke', '#7c6af0');
+  portHL.setAttribute('stroke-width', '2');
+  portHL.setAttribute('pointer-events', 'none');
+  portHL.style.display = 'none';
+  snapLayer.appendChild(portHL);
+
+  document.getElementById('diagram-layer').appendChild(snapLayer);
+
   // Drag from palette (drop onto canvas)
   wrapper.addEventListener('dragover', e => { e.preventDefault(); wrapper.classList.add('drag-over'); });
   wrapper.addEventListener('dragleave', () => wrapper.classList.remove('drag-over'));
@@ -290,6 +397,7 @@ function initCanvas() {
   $(svg).on('mousedown', function (e) {
     if ($(e.target).closest('.node-group').length) return;
     if ($(e.target).closest('.node-port').length) return;
+    if ($(e.target).hasClass('bend-handle')) return; // handled by the handle's own listener
 
     const pos = svgPos(e);
 
@@ -300,10 +408,10 @@ function initCanvas() {
       return;
     }
 
-    if (tool === 'select') {
-      selectNode(null);
-      cancelEdgeDrawing();
-    }
+    // Deselect and cancel edge drawing on any canvas background click
+    // (pan/middle-mouse already returns early above)
+    selectNode(null);
+    cancelEdgeDrawing();
   });
 
   $(window).on('mousemove', function (e) {
@@ -314,36 +422,139 @@ function initCanvas() {
       return;
     }
     if (isDragging && dragNode) {
+      if (!dragHistoryPushed) { pushHistory(); dragHistoryPushed = true; }
       const pos = svgPos(e);
-      dragNode.x = pos.x - dragOffset.x;
-      dragNode.y = pos.y - dragOffset.y;
+      let nx = pos.x - dragOffset.x;
+      let ny = pos.y - dragOffset.y;
+      const dx = dragNode;
+
+      // Alignment snap: find closest match on each axis
+      let bestV = { dist: SNAP_THRESHOLD, snapX: null, guideX: null };
+      let bestH = { dist: SNAP_THRESHOLD, snapY: null, guideY: null };
+
+      for (const other of nodes) {
+        if (other.id === dx.id) continue;
+        const oCx = other.x + other.w / 2;
+        const oCy = other.y + other.h / 2;
+
+        // X-axis candidates → vertical guide line
+        const xTests = [
+          { my: nx,              their: other.x,         snapX: other.x,                 guideX: other.x },
+          { my: nx + dx.w,       their: other.x + other.w, snapX: other.x + other.w - dx.w, guideX: other.x + other.w },
+          { my: nx + dx.w / 2,   their: oCx,             snapX: oCx - dx.w / 2,          guideX: oCx },
+        ];
+        for (const t of xTests) {
+          const d = Math.abs(t.my - t.their);
+          if (d < bestV.dist) bestV = { dist: d, snapX: t.snapX, guideX: t.guideX };
+        }
+
+        // Y-axis candidates → horizontal guide line
+        const yTests = [
+          { my: ny,              their: other.y,          snapY: other.y,                  guideY: other.y },
+          { my: ny + dx.h,       their: other.y + other.h, snapY: other.y + other.h - dx.h, guideY: other.y + other.h },
+          { my: ny + dx.h / 2,   their: oCy,              snapY: oCy - dx.h / 2,           guideY: oCy },
+        ];
+        for (const t of yTests) {
+          const d = Math.abs(t.my - t.their);
+          if (d < bestH.dist) bestH = { dist: d, snapY: t.snapY, guideY: t.guideY };
+        }
+      }
+
+      if (bestV.snapX !== null) nx = bestV.snapX;
+      if (bestH.snapY !== null) ny = bestH.snapY;
+
+      dragNode.x = Math.round(nx);
+      dragNode.y = Math.round(ny);
+      updateSnapGuides(bestH.guideY, bestV.guideX);
       renderNode(dragNode);
       renderEdgesForNode(dragNode.id);
       return;
     }
+    if (isResizing && resizeNode) {
+      const pos = svgPos(e);
+      const dx = pos.x - resizeStartPos.x;
+      const dy = pos.y - resizeStartPos.y;
+      const { x: ox, y: oy, w: ow, h: oh } = resizeStartGeom;
+      let nx = ox, ny = oy, nw = ow, nh = oh;
+
+      if (resizeHandle.includes('e')) nw = Math.max(MIN_NODE_SIZE, ow + dx);
+      if (resizeHandle.includes('s')) nh = Math.max(MIN_NODE_SIZE, oh + dy);
+      if (resizeHandle.includes('w')) { nw = Math.max(MIN_NODE_SIZE, ow - dx); nx = ox + ow - nw; }
+      if (resizeHandle.includes('n')) { nh = Math.max(MIN_NODE_SIZE, oh - dy); ny = oy + oh - nh; }
+
+      resizeNode.x = Math.round(nx); resizeNode.y = Math.round(ny);
+      resizeNode.w = Math.round(nw); resizeNode.h = Math.round(nh);
+      renderNode(resizeNode);
+      renderEdgesForNode(resizeNode.id);
+      return;
+    }
+    if (isDraggingBend && bendEdge) {
+      const pos = svgPos(e);
+      bendEdge.bend = { x: pos.x - bendNaturalMid.x, y: pos.y - bendNaturalMid.y };
+      renderEdge(bendEdge);
+      return;
+    }
     if (drawingEdge) {
       const pos = svgPos(e);
+
+      // Port snap: find nearest port within threshold
+      const nearest = findNearestPort(pos, drawingEdge.fromId);
+      snapEdgeTo = nearest;
+      const endPos = nearest ? nearest.pos : pos;
+
       const fp = drawingEdge.fromPos;
-      const mag = Math.max(Math.abs(pos.x - fp.x) * 0.5, Math.abs(pos.y - fp.y) * 0.5, 50);
+      const mag = Math.max(Math.abs(endPos.x - fp.x) * 0.5, Math.abs(endPos.y - fp.y) * 0.5, 50);
       let c1x = fp.x, c1y = fp.y;
       if      (drawingEdge.fromPort === 'e') c1x = fp.x + mag;
       else if (drawingEdge.fromPort === 'w') c1x = fp.x - mag;
       else if (drawingEdge.fromPort === 'n') c1y = fp.y - mag;
       else if (drawingEdge.fromPort === 's') c1y = fp.y + mag;
-      $('#temp-edge').attr('d', `M ${fp.x} ${fp.y} C ${c1x} ${c1y}, ${pos.x} ${pos.y}, ${pos.x} ${pos.y}`);
+      $('#temp-edge').attr('d', `M ${fp.x} ${fp.y} C ${c1x} ${c1y}, ${endPos.x} ${endPos.y}, ${endPos.x} ${endPos.y}`);
+
+      // Show/hide port highlight ring
+      const portHL = document.getElementById('port-snap-highlight');
+      if (nearest) {
+        portHL.setAttribute('cx', nearest.pos.x);
+        portHL.setAttribute('cy', nearest.pos.y);
+        portHL.style.display = '';
+      } else {
+        portHL.style.display = 'none';
+      }
     }
   });
 
   $(window).on('mouseup', function (e) {
     if (isPanning) { isPanning = false; return; }
-    if (isDragging) {
-      isDragging = false;
-      dragNode = null;
+    if (isDraggingBend) {
+      isDraggingBend = false;
+      bendEdge = null;
       scheduleSave();
       return;
     }
-    if (drawingEdge && !$(e.target).closest('.node-group').length) {
-      cancelEdgeDrawing();
+    if (isResizing) {
+      isResizing = false;
+      resizeNode = null;
+      scheduleSave();
+      return;
+    }
+    if (isDragging) {
+      isDragging = false;
+      dragNode = null;
+      clearSnapGuides();
+      scheduleSave();
+      return;
+    }
+    if (drawingEdge) {
+      const overNode = $(e.target).closest('.node-group').length > 0;
+      if (!overNode && snapEdgeTo) {
+        // Released near a port but not directly over the node — complete via snap
+        completeEdge(snapEdgeTo.nodeId, snapEdgeTo.port);
+        document.getElementById('port-snap-highlight').style.display = 'none';
+        snapEdgeTo = null;
+      } else if (!overNode) {
+        cancelEdgeDrawing();
+      }
+      // If over a node-group, its mouseup handler fires (with stopPropagation) and handles it
     }
   });
 
@@ -435,6 +646,17 @@ function setTool(t) {
 function initKeyboard() {
   $(document).on('keydown', function (e) {
     if ($(e.target).is('input, textarea, select')) return;
+    const ctrl = e.ctrlKey || e.metaKey;
+    if (ctrl) {
+      switch (e.key.toLowerCase()) {
+        case 'z': e.preventDefault(); if (!isReadOnly) undo(); return;
+        case 'y': e.preventDefault(); if (!isReadOnly) redo(); return;
+        case 'c': e.preventDefault(); copySelected(); return;
+        case 'x': e.preventDefault(); if (!isReadOnly) cutSelected(); return;
+        case 'v': e.preventDefault(); if (!isReadOnly) pasteClipboard(); return;
+        case 'd': e.preventDefault(); if (!isReadOnly) duplicateSelected(); return;
+      }
+    }
     switch (e.key) {
       case 'v': case 'V': setTool('select'); break;
       case 'c': case 'C': setTool('connect'); break;
@@ -493,6 +715,7 @@ function deleteNode(id) {
 function duplicateSelected() {
   const node = nodes.find(n => n.id === selectedId);
   if (!node) return;
+  pushHistory();
   const dup = { ...node, id: 'n' + nextId++, x: node.x + 30, y: node.y + 30, columns: JSON.parse(JSON.stringify(node.columns || [])) };
   nodes.push(dup);
   renderNode(dup);
@@ -507,11 +730,13 @@ function bringToFront(id) {
 
 function deleteSelected() {
   if (isReadOnly || !selectedId) return;
+  pushHistory();
   const edge = edges.find(e => e.id === selectedId);
   if (edge) {
     edges = edges.filter(e => e.id !== selectedId);
     $(`#${selectedId}`).remove();
     $(`#label-${selectedId}`).remove();
+    $(`#bend-handle-${selectedId}`).remove();
     selectNode(null);
     scheduleSave();
     return;
@@ -558,8 +783,53 @@ function renderNode(node) {
     g.appendChild(port);
   });
 
+  // Resize handles — shown only when this node is selected
+  if (selectedId === node.id && !isReadOnly) appendResizeHandles(g, node);
+
   document.getElementById('nodes-layer').appendChild(g);
   bindNodeEvents(g, node);
+}
+
+// Add 8 resize handles to a node's <g> element
+function appendResizeHandles(g, node) {
+  if (isReadOnly) return;
+  const resizeDirs = [
+    { dir: 'nw', cx: 0,           cy: 0            },
+    { dir: 'n',  cx: node.w / 2,  cy: 0            },
+    { dir: 'ne', cx: node.w,      cy: 0            },
+    { dir: 'e',  cx: node.w,      cy: node.h / 2   },
+    { dir: 'se', cx: node.w,      cy: node.h       },
+    { dir: 's',  cx: node.w / 2,  cy: node.h       },
+    { dir: 'sw', cx: 0,           cy: node.h       },
+    { dir: 'w',  cx: 0,           cy: node.h / 2   },
+  ];
+  const cursors = { nw: 'nw-resize', n: 'n-resize', ne: 'ne-resize', e: 'e-resize', se: 'se-resize', s: 's-resize', sw: 'sw-resize', w: 'w-resize' };
+  resizeDirs.forEach(({ dir, cx, cy }) => {
+    const rh = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rh.setAttribute('x', cx - 4); rh.setAttribute('y', cy - 4);
+    rh.setAttribute('width', 8);  rh.setAttribute('height', 8);
+    rh.setAttribute('rx', 1.5);
+    rh.setAttribute('fill', '#ffffff');
+    rh.setAttribute('stroke', '#7c6af0');
+    rh.setAttribute('stroke-width', '1.5');
+    rh.setAttribute('class', 'resize-handle');
+    rh.setAttribute('data-resize', dir);
+    rh.style.cursor = cursors[dir];
+    g.appendChild(rh);
+  });
+}
+
+// Show/hide resize handles on an already-rendered node without recreating it
+// (recreating the <g> on every click would break native dblclick detection)
+function showResizeHandles(node) {
+  const g = document.getElementById(node.id);
+  if (!g || g.querySelector('.resize-handle')) return;
+  appendResizeHandles(g, node);
+}
+function hideResizeHandles(id) {
+  const g = document.getElementById(id);
+  if (!g) return;
+  g.querySelectorAll('.resize-handle').forEach(h => h.remove());
 }
 
 function buildNodeShape(node) {
@@ -589,11 +859,13 @@ function buildNodeShape(node) {
     frag.appendChild(poly);
     frag.appendChild(makeText(label, w / 2, h / 2, 12, color));
   } else if (type === 'connector') {
-    const cx = w / 2, cy = h / 2, r2 = Math.min(w, h) / 2 - 2;
-    const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    c.setAttribute('cx', cx); c.setAttribute('cy', cy); c.setAttribute('r', r2);
-    c.setAttribute('fill', color + alpha); c.setAttribute('stroke', color); c.setAttribute('stroke-width', '2');
-    frag.appendChild(c);
+    const cx = w / 2, cy = h / 2;
+    const el = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+    el.setAttribute('cx', cx); el.setAttribute('cy', cy);
+    el.setAttribute('rx', w / 2 - 1); el.setAttribute('ry', h / 2 - 1);
+    el.setAttribute('fill', color + alpha); el.setAttribute('stroke', color); el.setAttribute('stroke-width', '2');
+    frag.appendChild(el);
+    if (label) frag.appendChild(makeText(label, cx, cy, 11, color));
   } else if (type === 'er-table') {
     // Table header
     const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
@@ -684,8 +956,9 @@ function makeText(text, x, y, size, fill, weight = 600, anchor = 'middle') {
 function bindNodeEvents(g, node) {
   const $g = $(g);
 
-  // Show ports on hover
+  // Show ports on hover (text nodes never connect)
   $g.on('mouseenter', function () {
+    if (node.type === 'text') return;
     if (tool === 'connect' || tool === 'select') {
       $(this).find('.node-port').show();
     }
@@ -697,7 +970,18 @@ function bindNodeEvents(g, node) {
   $g.on('mousedown', function (e) {
     e.stopPropagation();
 
-    if ($(e.target).hasClass('node-port')) {
+    if ($(e.target).hasClass('resize-handle') && !isReadOnly && tool === 'select') {
+      pushHistory();
+      isResizing = true;
+      resizeNode = node;
+      resizeHandle = $(e.target).data('resize');
+      resizeStartPos = svgPos(e);
+      resizeStartGeom = { x: node.x, y: node.y, w: node.w, h: node.h };
+      e.preventDefault();
+      return;
+    }
+
+    if ($(e.target).hasClass('node-port') && node.type !== 'text') {
       // Start edge drawing
       if (!isReadOnly && (tool === 'connect' || tool === 'select')) {
         const portDir = $(e.target).data('port');
@@ -720,6 +1004,7 @@ function bindNodeEvents(g, node) {
 
     if (tool === 'select' && !isReadOnly) {
       isDragging = true;
+      dragHistoryPushed = false;
       dragNode = node;
       const pos = svgPos(e);
       dragOffset = { x: pos.x - node.x, y: pos.y - node.y };
@@ -729,11 +1014,14 @@ function bindNodeEvents(g, node) {
 
   // Complete edge on port click (from another node)
   $g.on('mouseup', function (e) {
-    if (!drawingEdge || drawingEdge.fromId === node.id) {
+    if (!drawingEdge || drawingEdge.fromId === node.id || node.type === 'text') {
       cancelEdgeDrawing();
       return;
     }
-    const portDir = $(e.target).data('port') || 'w';
+    // Prefer the snapped port if snap is targeting this node
+    const portDir = (snapEdgeTo && snapEdgeTo.nodeId === node.id)
+      ? snapEdgeTo.port
+      : ($(e.target).data('port') || 'w');
     completeEdge(node.id, portDir);
     e.stopPropagation();
   });
@@ -742,20 +1030,14 @@ function bindNodeEvents(g, node) {
   $g.on('dblclick', function (e) {
     if (isReadOnly) return;
     if (node.type === 'er-table') { openErEditor(node.id); return; }
-    if (node.type === 'text') { openTextEditor(node); return; }
-    const newLabel = prompt('Edit label:', node.label);
-    if (newLabel !== null) {
-      node.label = newLabel;
-      renderNode(node);
-      renderEdgesForNode(node.id);
-      scheduleSave();
-    }
+    openTextEditor(node);
   });
 }
 
 // ── Edge Drawing ──────────────────────────────────────────────
 function completeEdge(toId, toPort) {
   if (!drawingEdge) return;
+  pushHistory();
   const pending = drawingEdge;
   cancelEdgeDrawing();
 
@@ -766,7 +1048,8 @@ function completeEdge(toId, toPort) {
     to: toId,
     toPort: toPort,
     label: '',
-    relType: selectedRelType
+    relType: selectedRelType,
+    bend: { x: 0, y: 0 }
   };
   edges.push(edge);
   renderEdge(edge);
@@ -775,13 +1058,45 @@ function completeEdge(toId, toPort) {
 
 function cancelEdgeDrawing() {
   drawingEdge = null;
+  snapEdgeTo = null;
   $('#temp-edge').hide();
+  const portHL = document.getElementById('port-snap-highlight');
+  if (portHL) portHL.style.display = 'none';
+}
+
+function updateSnapGuides(snapH, snapV) {
+  const h = document.getElementById('snap-guide-h');
+  const v = document.getElementById('snap-guide-v');
+  if (h) { if (snapH !== null) { h.setAttribute('y1', snapH); h.setAttribute('y2', snapH); h.style.display = ''; } else h.style.display = 'none'; }
+  if (v) { if (snapV !== null) { v.setAttribute('x1', snapV); v.setAttribute('x2', snapV); v.style.display = ''; } else v.style.display = 'none'; }
+}
+
+function clearSnapGuides() {
+  const h = document.getElementById('snap-guide-h');
+  const v = document.getElementById('snap-guide-v');
+  if (h) h.style.display = 'none';
+  if (v) v.style.display = 'none';
+}
+
+function findNearestPort(pos, excludeNodeId) {
+  let nearest = null;
+  let nearestDist = PORT_SNAP_DIST;
+  for (const node of nodes) {
+    if (node.id === excludeNodeId || node.type === 'text') continue;
+    for (const portDir of ['n', 's', 'e', 'w']) {
+      const pp = getPortPos(node, portDir);
+      const dist = Math.hypot(pos.x - pp.x, pos.y - pp.y);
+      if (dist < nearestDist) { nearestDist = dist; nearest = { nodeId: node.id, port: portDir, pos: pp }; }
+    }
+  }
+  return nearest;
 }
 
 function renderEdge(edge) {
-  // Remove existing
+  // Remove existing elements for this edge
   $(`#${edge.id}`).remove();
   $(`#label-${edge.id}`).remove();
+  $(`#bend-handle-${edge.id}`).remove();
 
   const fromNode = nodes.find(n => n.id === edge.from);
   const toNode = nodes.find(n => n.id === edge.to);
@@ -789,8 +1104,9 @@ function renderEdge(edge) {
 
   const fp = getPortPos(fromNode, edge.fromPort || 'e');
   const tp = getPortPos(toNode, edge.toPort || 'w');
+  const bend = edge.bend || { x: 0, y: 0 };
 
-  // Bezier control points — follow port direction so arrow orient="auto" works correctly
+  // Base control points (port direction, no bend)
   const mag = Math.max(Math.abs(tp.x - fp.x) * 0.5, Math.abs(tp.y - fp.y) * 0.5, 50);
   let c1x = fp.x, c1y = fp.y;
   const fromPort = edge.fromPort || 'e';
@@ -806,6 +1122,15 @@ function renderEdge(edge) {
   else if (toPort === 'n') c2y = tp.y - mag;
   else if (toPort === 's') c2y = tp.y + mag;
 
+  // Natural Bezier midpoint (t=0.5, no bend) — used for handle position
+  const natMx = (1/8)*fp.x + (3/8)*c1x + (3/8)*c2x + (1/8)*tp.x;
+  const natMy = (1/8)*fp.y + (3/8)*c1y + (3/8)*c2y + (1/8)*tp.y;
+
+  // Apply bend: shifting both control points by (4/3)*bend moves B(0.5) by exactly bend
+  const db = 4 / 3;
+  c1x += db * bend.x; c1y += db * bend.y;
+  c2x += db * bend.x; c2y += db * bend.y;
+
   const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
   path.setAttribute('id', edge.id);
   path.setAttribute('class', `edge-path ${edge.id === selectedId ? 'selected' : ''}`);
@@ -816,28 +1141,36 @@ function renderEdge(edge) {
   path.setAttribute('fill', 'none');
   path.setAttribute('stroke-dasharray', edge.relType === 'many-to-many' ? '6,3' : 'none');
 
-  // Click to select edge
-  path.addEventListener('click', (e) => {
-    e.stopPropagation();
-    selectNode(edge.id);
-  });
-
+  path.addEventListener('click', (e) => { e.stopPropagation(); selectNode(edge.id); });
   document.getElementById('edges-layer').appendChild(path);
+
+  // Bend handle — draggable midpoint shown when this edge is selected
+  if (edge.id === selectedId && !isReadOnly) {
+    const hx = natMx + bend.x;
+    const hy = natMy + bend.y;
+    const handle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    handle.setAttribute('id', `bend-handle-${edge.id}`);
+    handle.setAttribute('cx', hx); handle.setAttribute('cy', hy); handle.setAttribute('r', 6);
+    handle.setAttribute('fill', '#7c6af0'); handle.setAttribute('stroke', '#fff'); handle.setAttribute('stroke-width', '1.5');
+    handle.setAttribute('class', 'bend-handle');
+    handle.style.cursor = 'grab';
+    handle.addEventListener('mousedown', function (ev) {
+      ev.stopPropagation(); ev.preventDefault();
+      pushHistory();
+      isDraggingBend = true;
+      bendEdge = edge;
+      bendNaturalMid = { x: natMx, y: natMy };
+    });
+    document.getElementById('edges-layer').appendChild(handle);
+  }
 
   // Cardinality labels for ER
   if (diagramType === 'er' && edge.relType) {
     const labels = getRelLabels(edge.relType);
-    const midX = (fp.x + tp.x) / 2;
-    const midY = (fp.y + tp.y) / 2;
-
     const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     g.setAttribute('id', `label-${edge.id}`);
-
-    const fromLabel = makeText(labels[0], fp.x + (fp.x < tp.x ? 16 : -16), fp.y - 8, 11, '#6a6a88');
-    const toLabel = makeText(labels[1], tp.x + (tp.x > fp.x ? -16 : 16), tp.y - 8, 11, '#6a6a88');
-
-    g.appendChild(fromLabel);
-    g.appendChild(toLabel);
+    g.appendChild(makeText(labels[0], fp.x + (fp.x < tp.x ? 16 : -16), fp.y - 8, 11, '#6a6a88'));
+    g.appendChild(makeText(labels[1], tp.x + (tp.x > fp.x ? -16 : 16), tp.y - 8, 11, '#6a6a88'));
     document.getElementById('edges-layer').appendChild(g);
   }
 }
@@ -869,9 +1202,19 @@ function renderEdgesForNode(nodeId) {
 
 // ── Selection ─────────────────────────────────────────────────
 function selectNode(id) {
+  const prevId = selectedId;
   selectedId = id;
   $('.node-group').removeClass('selected');
   $('.edge-path').removeClass('selected').attr('stroke', '#4a4a68').attr('marker-end', 'url(#arrow)');
+
+  // Strip handles/highlights from the previous selection.
+  // Important: do NOT re-render the node element here — recreating the <g>
+  // between clicks breaks the browser's native dblclick detection.
+  if (prevId && prevId !== id) {
+    hideResizeHandles(prevId);
+    const prevEdge = edges.find(e => e.id === prevId);
+    if (prevEdge) renderEdge(prevEdge);
+  }
 
   if (!id) {
     $('#properties-panel').hide();
@@ -880,6 +1223,7 @@ function selectNode(id) {
 
   const node = nodes.find(n => n.id === id);
   if (node) {
+    if (!isReadOnly) showResizeHandles(node);
     $(`#${id}`).addClass('selected');
     showNodeProperties(node);
     return;
@@ -887,11 +1231,7 @@ function selectNode(id) {
 
   const edge = edges.find(e => e.id === id);
   if (edge) {
-    const path = document.getElementById(id);
-    if (path) {
-      path.setAttribute('stroke', '#7c6af0');
-      path.setAttribute('marker-end', 'url(#arrow-selected)');
-    }
+    renderEdge(edge); // redraws with bend handle
     showEdgeProperties(edge);
   }
 }
@@ -899,6 +1239,9 @@ function selectNode(id) {
 function showNodeProperties(node) {
   if (node.type === 'er-table') { $('#properties-panel').hide(); return; }
   $('#properties-panel').show();
+
+  let histPushed = false;
+  const maybePush = () => { if (!histPushed) { pushHistory(); histPushed = true; } };
 
   if (node.type === 'text') {
     $('#properties-content').html(`
@@ -909,6 +1252,7 @@ function showNodeProperties(node) {
       <p style="font-size:10px;color:var(--text-3);margin-top:8px;line-height:1.5">Double-click the text on canvas to edit. Click outside to close.</p>
     `);
     $('#prop-color').on('input', function () {
+      maybePush();
       node.color = $(this).val();
       renderNode(node);
       const $ta = $('#inline-text-editor');
@@ -922,21 +1266,14 @@ function showNodeProperties(node) {
 
   $('#properties-content').html(`
     <div class="prop-row">
-      <label class="prop-label">Label</label>
-      <input class="prop-input" id="prop-label" value="${escHtml(node.label)}">
-    </div>
-    <div class="prop-row">
       <label class="prop-label">Color</label>
       <input type="color" class="prop-input" id="prop-color" value="${node.color}" style="padding:2px;height:32px">
     </div>
+    <p style="font-size:10px;color:var(--text-3);margin-top:8px;line-height:1.5">Double-click the node to edit its label.</p>
   `);
 
-  $('#prop-label').on('input', function () {
-    node.label = $(this).val();
-    renderNode(node);
-    scheduleSave();
-  });
   $('#prop-color').on('input', function () {
+    maybePush();
     node.color = $(this).val();
     renderNode(node);
     scheduleSave();
@@ -962,16 +1299,32 @@ function showEdgeProperties(edge) {
       <input class="prop-input" id="prop-edge-label" value="${escHtml(edge.label || '')}">
     </div>
     ${relOpts}
+    <div class="prop-row">
+      <label class="prop-label">Curve</label>
+      <p style="font-size:10px;color:var(--text-3);line-height:1.5;margin:0">Drag the <span style="color:#7c6af0">●</span> handle on the edge to bend it.</p>
+      <button class="btn btn-ghost btn-sm" id="prop-reset-curve" style="margin-top:4px">Reset Curve</button>
+    </div>
     <button class="btn btn-danger btn-sm" id="prop-delete-edge" style="margin-top:4px">Delete Edge</button>
   `);
 
+  let histPushed = false;
+  const maybePush = () => { if (!histPushed) { pushHistory(); histPushed = true; } };
+
   $('#prop-edge-label').on('input', function () {
+    maybePush();
     edge.label = $(this).val();
     renderEdge(edge);
     scheduleSave();
   });
   $('#prop-rel').on('change', function () {
+    maybePush();
     edge.relType = $(this).val();
+    renderEdge(edge);
+    scheduleSave();
+  });
+  $('#prop-reset-curve').on('click', function () {
+    pushHistory();
+    edge.bend = { x: 0, y: 0 };
     renderEdge(edge);
     scheduleSave();
   });
@@ -979,6 +1332,7 @@ function showEdgeProperties(edge) {
     edges = edges.filter(e => e.id !== edge.id);
     $(`#${edge.id}`).remove();
     $(`#label-${edge.id}`).remove();
+    $(`#bend-handle-${edge.id}`).remove();
     selectNode(null);
     scheduleSave();
   });
@@ -1046,7 +1400,7 @@ function addErColumn() {
 function saveErTable() {
   const node = nodes.find(n => n.id === editingErNodeId);
   if (!node) return;
-
+  pushHistory();
   node.label = $('#er-table-name').val().trim() || 'Table';
   node.columns = [];
 

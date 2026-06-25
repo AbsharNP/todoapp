@@ -683,7 +683,7 @@ a.nav-item { text-decoration: none; box-sizing: border-box; }
 .user-menu-chevron { color: var(--text-3); font-size: 11px; flex-shrink: 0; }
 
 /* ── Collapsed Sidebar ─────────────────────────────────────── */
-.app-layout.sidebar-collapsed .sidebar { width: var(--sidebar-collapsed-width); }
+.app-layout.sidebar-collapsed .sidebar { width: var(--sidebar-collapsed-width); overflow: visible; }
 
 .app-layout.sidebar-collapsed .sidebar-section-title {
   height: 0; opacity: 0; padding: 0; margin: 0; pointer-events: none;
@@ -706,7 +706,7 @@ a.nav-item { text-decoration: none; box-sizing: border-box; }
 .app-layout.sidebar-collapsed .sidebar-collapse-section { border-top: none; padding-top: 2px; }
 .app-layout.sidebar-collapsed .sidebar-collapse-btn .nav-icon { transform: rotate(180deg); }
 .app-layout.sidebar-collapsed .sidebar-bottom .dropdown-menu {
-  bottom: auto; top: 0;
+  bottom: 0; top: auto;
   left: calc(100% + 8px); right: auto;
   min-width: 200px;
 }

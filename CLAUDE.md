@@ -228,3 +228,6 @@ All colors are CSS custom properties in `:root`. Dark mode is the default; light
 - Mobile sidebar toggle / responsive layout
 - Drag-to-reorder tasks within a column
 - Subscription / monetization layer (planned: freemium via LemonSqueezy or Paddle)
+
+
+v

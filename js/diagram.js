@@ -86,7 +86,7 @@ function initUserMenu(session) {
   $('#diagram-user-avatar').text(initials);
   $('#diagram-user-name').text(name);
   $('#diagram-user-email').text(isGuest ? 'Guest account' : user.email);
-  $('#btn-diagram-logout').html(isGuest ? '<span>👤</span> Sign In / Create Account' : '<span>🚪</span> Sign Out');
+  $('#btn-diagram-logout').html(isGuest ? '<span><i class="fa-solid fa-user"></i></span> Sign In / Create Account' : '<span><i class="fa-solid fa-right-from-bracket"></i></span> Sign Out');
 
   $('#diagram-user-btn').on('click', function (e) {
     e.stopPropagation();
@@ -207,7 +207,7 @@ async function shareDiagram() {
   } catch {
     APP.toast('Copy this link: ' + url, 'info');
   }
-  $btn.text('Shared ✓').prop('disabled', false);
+  $btn.html('Shared <i class="fa-solid fa-check"></i>').prop('disabled', false);
 }
 
 function scheduleSave() {
@@ -1301,7 +1301,7 @@ function showEdgeProperties(edge) {
     ${relOpts}
     <div class="prop-row">
       <label class="prop-label">Curve</label>
-      <p style="font-size:10px;color:var(--text-3);line-height:1.5;margin:0">Drag the <span style="color:#7c6af0">●</span> handle on the edge to bend it.</p>
+      <p style="font-size:10px;color:var(--text-3);line-height:1.5;margin:0">Drag the <i class="fa-solid fa-circle" style="color:#7c6af0;font-size:7px;vertical-align:middle"></i> handle on the edge to bend it.</p>
       <button class="btn btn-ghost btn-sm" id="prop-reset-curve" style="margin-top:4px">Reset Curve</button>
     </div>
     <button class="btn btn-danger btn-sm" id="prop-delete-edge" style="margin-top:4px">Delete Edge</button>
@@ -1363,7 +1363,7 @@ function renderErColumns(cols) {
         <button class="flag-btn fk ${col.fk?'active':''}" data-flag="fk" title="Foreign Key">FK</button>
         <button class="flag-btn nn ${col.nn?'active':''}" data-flag="nn" title="Not Null">NN</button>
       </div>
-      <button class="btn btn-ghost btn-icon-sm remove-col" data-idx="${i}">✕</button>
+      <button class="btn btn-ghost btn-icon-sm remove-col" data-idx="${i}"><i class="fa-solid fa-xmark"></i></button>
     </div>
   `).join('');
   $('#er-columns-list').html(html);
@@ -1392,7 +1392,7 @@ function addErColumn() {
         <button class="flag-btn fk" data-flag="fk" title="Foreign Key">FK</button>
         <button class="flag-btn nn" data-flag="nn" title="Not Null">NN</button>
       </div>
-      <button class="btn btn-ghost btn-icon-sm remove-col" data-idx="${idx}">✕</button>
+      <button class="btn btn-ghost btn-icon-sm remove-col" data-idx="${idx}"><i class="fa-solid fa-xmark"></i></button>
     </div>
   `);
 }

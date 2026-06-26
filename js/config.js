@@ -90,14 +90,19 @@ const APP = {
     },
     _updateButtons() {
       const isDark = APP.theme.current() === 'dark';
-      $('.theme-toggle-icon').text(isDark ? '☀️' : '🌙');
+      $('.theme-toggle-icon').html(isDark ? '<i class="fa-solid fa-sun"></i>' : '<i class="fa-solid fa-moon"></i>');
       $('.theme-toggle-label').text(isDark ? 'Light Mode' : 'Dark Mode');
     }
   },
 
   toast(message, type = 'info') {
     const id = 'toast-' + Date.now();
-    const icons = { success: '✓', error: '✕', info: 'ℹ', warning: '⚠' };
+    const icons = {
+      success: '<i class="fa-solid fa-circle-check"></i>',
+      error: '<i class="fa-solid fa-circle-xmark"></i>',
+      info: '<i class="fa-solid fa-circle-info"></i>',
+      warning: '<i class="fa-solid fa-triangle-exclamation"></i>'
+    };
     const safeMsg = String(message).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     const $toast = $(`
       <div id="${id}" class="toast toast-${type}">

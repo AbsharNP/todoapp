@@ -68,7 +68,7 @@ const TEAM = {
         </div>
         <div style="display:flex;align-items:center;gap:8px">
           <span class="invite-status status-${inv.status}">${inv.status}</span>
-          ${inv.status === 'pending' ? `<button class="btn btn-ghost btn-icon-sm revoke-invite" data-id="${inv.id}" title="Revoke">✕</button>` : ''}
+          ${inv.status === 'pending' ? `<button class="btn btn-ghost btn-icon-sm revoke-invite" data-id="${inv.id}" title="Revoke"><i class="fa-solid fa-xmark"></i></button>` : ''}
         </div>
       </div>
     `).join(''));
@@ -77,7 +77,7 @@ const TEAM = {
       const $btn = $(this);
       if (!$btn.data('confirming')) {
         $btn.data('confirming', true).text('Sure?');
-        setTimeout(() => $btn.data('confirming', false).text('✕'), 3000);
+        setTimeout(() => $btn.data('confirming', false).html('<i class="fa-solid fa-xmark"></i>'), 3000);
         return;
       }
       const id = $btn.data('id');

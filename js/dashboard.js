@@ -87,6 +87,8 @@ $(document).ready(async function () {
     openModal('modal-new-list');
   });
   $('#btn-create-list').on('click', createList);
+  $('#btn-rename-list').on('click', renameList);
+  $('#rename-list-name').on('keydown', e => { if (e.key === 'Enter') renameList(); });
 
   // Color picker
   $(document).on('click', '.color-swatch', function () {
@@ -114,6 +116,8 @@ $(document).ready(async function () {
   $('#btn-new-flowchart').on('click', () => openNewDiagramModal('flowchart'));
   $('#btn-new-er').on('click', () => openNewDiagramModal('er'));
   $('#btn-create-diagram').on('click', createDiagram);
+  $('#btn-rename-diagram').on('click', renameDiagramFromDashboard);
+  $('#rename-diagram-name').on('keydown', e => { if (e.key === 'Enter') renameDiagramFromDashboard(); });
   $('#btn-import-diagram').on('click', () => $('#input-import-diagram').click());
   $('#input-import-diagram').on('change', function () {
     if (this.files[0]) { importDiagram(this.files[0]); this.value = ''; }
@@ -160,9 +164,9 @@ function renderUserInfo(user, profile) {
   $('#user-email-display').text(isGuest ? 'Guest account' : user.email);
 
   if (isGuest) {
-    $('#btn-logout').html('<span>👤</span> Sign In / Create Account');
+    $('#btn-logout').html('<span><i class="fa-solid fa-user"></i></span> Sign In / Create Account');
   } else {
-    $('#btn-logout').html('<span>🚪</span> Sign Out');
+    $('#btn-logout').html('<span><i class="fa-solid fa-right-from-bracket"></i></span> Sign Out');
   }
 }
 
@@ -215,7 +219,7 @@ function renderWsList() {
     <div class="ws-item ${ws.id === currentWsId ? 'active' : ''}" data-ws="${escHtml(ws.id)}">
       <div class="workspace-icon" style="width:20px;height:20px;font-size:11px">${escHtml((ws.name||'W')[0].toUpperCase())}</div>
       ${escHtml(ws.name)}
-      ${ws.id === currentWsId ? '<span style="margin-left:auto;color:var(--accent)">✓</span>' : ''}
+      ${ws.id === currentWsId ? '<span style="margin-left:auto;color:var(--accent)"><i class="fa-solid fa-check"></i></span>' : ''}
     </div>
   `).join('');
   $('#ws-list').html(html);
@@ -321,6 +325,8 @@ function renderListSelector() {
                 style="${selectedListId === l.id ? `background:${safeColor};border-color:${safeColor}` : ''}">
           <span class="list-dot" style="background:${safeColor}"></span>
           ${escHtml(l.name)}
+          <span class="list-chip-edit" data-list="${escHtml(l.id)}" data-name="${escHtml(l.name)}" data-tooltip="Rename list"><i class="fa-solid fa-pen"></i></span>
+          <span class="list-chip-del" data-list="${escHtml(l.id)}" data-name="${escHtml(l.name)}" data-tooltip="Delete list"><i class="fa-solid fa-trash"></i></span>
         </button>
       `;
     }).join('');
@@ -331,6 +337,64 @@ function renderListSelector() {
     renderListSelector();
     renderKanban();
   });
+  $('#list-selector .list-chip-edit').on('click', function (e) {
+    e.stopPropagation();
+    openRenameListModal($(this).data('list'), $(this).data('name'));
+  });
+  $('#list-selector .list-chip-del').on('click', function (e) {
+    e.stopPropagation();
+    const $del = $(this);
+    const id = $del.data('list');
+    if (pendingDeleteListId !== id) {
+      pendingDeleteListId = id;
+      $('.list-chip-del').removeClass('confirm');
+      $del.addClass('confirm');
+      APP.toast(`Click delete again to remove "${$del.data('name')}" and its tasks`, 'warning');
+      clearTimeout(pendingDeleteListTimer);
+      pendingDeleteListTimer = setTimeout(() => { pendingDeleteListId = null; $del.removeClass('confirm'); }, 4000);
+      return;
+    }
+    clearTimeout(pendingDeleteListTimer);
+    pendingDeleteListId = null;
+    deleteList(id, $del.data('name'));
+  });
+}
+
+let pendingDeleteListId = null;
+let pendingDeleteListTimer = null;
+let renameListId = null;
+
+function openRenameListModal(id, name) {
+  const list = allLists.find(l => l.id === id);
+  renameListId = id;
+  $('#rename-list-name').val(name);
+  selectedColor = (list && list.color) || '#6366f1';
+  const $picker = $('#rename-list-color-picker');
+  $picker.find('.color-swatch').removeClass('selected');
+  $picker.find(`.color-swatch[data-color="${selectedColor}"]`).addClass('selected');
+  openModal('modal-rename-list');
+  setTimeout(() => $('#rename-list-name').focus().select(), 50);
+}
+
+async function renameList() {
+  const name = $('#rename-list-name').val().trim();
+  if (!name) return APP.toast('List name is required', 'warning');
+  const { error } = await supabase.from('todo_lists').update({ name, color: selectedColor }).eq('id', renameListId);
+  if (error) return APP.toast('Failed to update list', 'error');
+  closeModal('modal-rename-list');
+  APP.toast('List updated', 'success');
+  await loadLists();
+  renderKanban();
+}
+
+async function deleteList(id, name) {
+  const { error } = await supabase.from('todo_lists').delete().eq('id', id);
+  if (error) return APP.toast('Failed to delete list', 'error');
+  if (selectedListId === id) selectedListId = 'all';
+  APP.toast(`List "${name}" deleted`, 'info');
+  await loadLists();
+  await loadTodos();
+  renderOverview();
 }
 
 function renderListOptions() {
@@ -579,12 +643,12 @@ function renderTaskCard(todo) {
       </div>
       <div class="task-card-meta">
         <span class="badge badge-${priority}">${priority}</span>
-        ${todo.due_date ? `<span class="task-due ${isOverdue ? 'overdue' : ''}">📅 ${APP.formatDate(todo.due_date)}</span>` : ''}
-        ${commentCount ? `<span class="task-comments" data-tooltip="${commentCount} comment${commentCount > 1 ? 's' : ''}">💬 ${commentCount}</span>` : ''}
+        ${todo.due_date ? `<span class="task-due ${isOverdue ? 'overdue' : ''}"><i class="fa-solid fa-calendar"></i> ${APP.formatDate(todo.due_date)}</span>` : ''}
+        ${commentCount ? `<span class="task-comments" data-tooltip="${commentCount} comment${commentCount > 1 ? 's' : ''}"><i class="fa-solid fa-comment"></i> ${commentCount}</span>` : ''}
       </div>
       <div class="task-card-footer">
         ${list ? `<span class="task-list-badge" style="background:${safeCssColor(list.color)}">${escHtml(list.name)}</span>` : '<span></span>'}
-        ${assigneeName ? `<span style="font-size:11px;color:var(--text-3)">→ ${escHtml(assigneeName)}</span>` : ''}
+        ${assigneeName ? `<span style="font-size:11px;color:var(--text-3)"><i class="fa-solid fa-user"></i> ${escHtml(assigneeName)}</span>` : ''}
       </div>
     </div>
   `;
@@ -796,7 +860,7 @@ function renderComments(comments) {
           </div>
           <div class="comment-text">${escHtml(c.body)}</div>
         </div>
-        ${mine ? `<button class="comment-delete" data-id="${escHtml(c.id)}" data-tooltip="Delete comment">✕</button>` : ''}
+        ${mine ? `<button class="comment-delete" data-id="${escHtml(c.id)}" data-tooltip="Delete comment"><i class="fa-solid fa-xmark"></i></button>` : ''}
       </div>`;
   }).join(''));
 
@@ -879,7 +943,7 @@ async function renderDiagrams() {
   if (!diagrams.length) {
     $('#diagrams-grid').html(`
       <div class="empty-state" style="grid-column:1/-1">
-        <div style="font-size:48px">🗺️</div>
+        <div style="font-size:48px;color:var(--accent)"><i class="fa-solid fa-diagram-project"></i></div>
         <h4>No diagrams yet</h4>
         <p>Create a flowchart or ER diagram to visualize your system.</p>
       </div>
@@ -887,20 +951,24 @@ async function renderDiagrams() {
     return;
   }
 
-  const icons = { flowchart: '📊', er: '🗄️' };
+  const icons = { flowchart: '<i class="fa-solid fa-diagram-project"></i>', er: '<i class="fa-solid fa-database"></i>' };
   $('#diagrams-grid').html(diagrams.map(d => `
     <div class="diagram-card" data-diagram-id="${d.id}">
-      <div class="diagram-preview">${icons[d.type] || '📊'}</div>
+      <div class="diagram-preview">${icons[d.type] || '<i class="fa-solid fa-diagram-project"></i>'}</div>
       <div class="diagram-card-body">
         <div class="diagram-card-name">${escHtml(d.name)}</div>
         <div class="diagram-card-meta">${d.type.toUpperCase()} · ${APP.formatDate(d.updated_at)}</div>
       </div>
-      <button class="btn btn-ghost btn-sm diagram-export-btn" data-id="${d.id}" data-name="${escHtml(d.name)}" title="Export as JSON" style="margin:0 8px 8px auto;display:block;font-size:11px">↓ Export</button>
+      <div class="diagram-card-actions">
+        <button class="btn btn-ghost btn-sm diagram-export-btn" data-id="${d.id}" data-name="${escHtml(d.name)}" title="Export as JSON"><i class="fa-solid fa-arrow-down"></i> Export</button>
+        <button class="btn btn-ghost btn-sm diagram-rename-btn" data-id="${d.id}" data-name="${escHtml(d.name)}" title="Rename diagram"><i class="fa-solid fa-pen"></i> Rename</button>
+        <button class="btn btn-ghost btn-sm diagram-delete-btn" data-id="${d.id}" data-name="${escHtml(d.name)}" title="Delete diagram"><i class="fa-solid fa-trash"></i></button>
+      </div>
     </div>
   `).join(''));
 
   $('.diagram-card').on('click', function (e) {
-    if ($(e.target).closest('.diagram-export-btn').length) return;
+    if ($(e.target).closest('.diagram-export-btn, .diagram-rename-btn, .diagram-delete-btn').length) return;
     const id = $(this).data('diagram-id');
     window.location.href = `diagram.html?id=${id}`;
   });
@@ -909,6 +977,49 @@ async function renderDiagrams() {
     e.stopPropagation();
     exportDiagramFromDashboard($(this).data('id'), $(this).data('name'));
   });
+
+  $('.diagram-rename-btn').on('click', function (e) {
+    e.stopPropagation();
+    openRenameDiagramModal($(this).data('id'), $(this).data('name'));
+  });
+
+  $('.diagram-delete-btn').on('click', function (e) {
+    e.stopPropagation();
+    const $btn = $(this);
+    if (!$btn.data('confirming')) {
+      $btn.data('confirming', true).addClass('btn-danger');
+      APP.toast(`Click delete again to remove "${$btn.data('name')}"`, 'warning');
+      setTimeout(() => $btn.data('confirming', false).removeClass('btn-danger'), 4000);
+      return;
+    }
+    deleteDiagramFromDashboard($btn.data('id'), $btn.data('name'));
+  });
+}
+
+let renameDiagramId = null;
+
+function openRenameDiagramModal(id, name) {
+  renameDiagramId = id;
+  $('#rename-diagram-name').val(name);
+  openModal('modal-rename-diagram');
+  setTimeout(() => $('#rename-diagram-name').focus().select(), 50);
+}
+
+async function renameDiagramFromDashboard() {
+  const name = $('#rename-diagram-name').val().trim();
+  if (!name) return APP.toast('Please enter a diagram name', 'warning');
+  const { error } = await supabase.from('diagrams').update({ name }).eq('id', renameDiagramId);
+  if (error) return APP.toast('Failed to rename diagram', 'error');
+  closeModal('modal-rename-diagram');
+  APP.toast('Diagram renamed', 'success');
+  renderDiagrams();
+}
+
+async function deleteDiagramFromDashboard(id, name) {
+  const { error } = await supabase.from('diagrams').delete().eq('id', id);
+  if (error) return APP.toast('Failed to delete diagram', 'error');
+  APP.toast(`Diagram "${name}" deleted`, 'info');
+  renderDiagrams();
 }
 
 let pendingDiagramType = 'flowchart';
@@ -952,7 +1063,7 @@ function switchPanel(name) {
     if (APP.isGuest()) {
       $('#panel-team').html(`
         <div class="empty-state" style="padding:60px 0">
-          <div style="font-size:48px;margin-bottom:12px">👥</div>
+          <div style="font-size:48px;margin-bottom:12px;color:var(--accent)"><i class="fa-solid fa-users"></i></div>
           <h4 style="margin-bottom:8px">Team features require an account</h4>
           <p style="color:var(--text-2);margin-bottom:20px">Sign in or create a free account to invite members and collaborate.</p>
           <a href="index.html" class="btn btn-primary">Sign In / Create Account</a>

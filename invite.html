@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Join Team – TaskFlow</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.2/css/all.min.css">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body class="auth-page">
@@ -15,7 +16,7 @@
     <!-- Loading -->
     <div id="state-loading" class="invite-card">
       <div class="invite-logo">
-        <div class="logo-icon">⚡</div>
+        <div class="logo-icon"><i class="fa-solid fa-bolt"></i></div>
         <span class="logo-name">TaskFlow</span>
       </div>
       <p class="invite-sub">Loading invite…</p>
@@ -24,21 +25,21 @@
     <!-- Error -->
     <div id="state-error" class="invite-card" style="display:none">
       <div class="invite-logo">
-        <div class="logo-icon">⚡</div>
+        <div class="logo-icon"><i class="fa-solid fa-bolt"></i></div>
         <span class="logo-name">TaskFlow</span>
       </div>
       <div style="text-align:center;margin-top:8px">
-        <div style="font-size:36px;margin-bottom:10px">❌</div>
+        <div style="font-size:36px;margin-bottom:10px;color:var(--red)"><i class="fa-solid fa-circle-xmark"></i></div>
         <h2 id="err-title" style="font-size:17px;margin-bottom:6px">Invalid Invite</h2>
         <p id="err-msg" style="font-size:13px;color:var(--text-2)">This invite link is invalid or has expired.</p>
-        <a href="index.html" class="btn btn-primary" style="margin-top:20px;display:inline-flex">Go to TaskFlow →</a>
+        <a href="index.html" class="btn btn-primary" style="margin-top:20px;display:inline-flex;gap:6px">Go to TaskFlow <i class="fa-solid fa-arrow-right"></i></a>
       </div>
     </div>
 
     <!-- Auth (need to sign in first) -->
     <div id="state-auth" class="invite-card" style="display:none">
       <div class="invite-logo">
-        <div class="logo-icon">⚡</div>
+        <div class="logo-icon"><i class="fa-solid fa-bolt"></i></div>
         <span class="logo-name">TaskFlow</span>
       </div>
       <div id="auth-ws-badge" class="invite-badge" style="display:none"></div>
@@ -90,11 +91,11 @@
     <!-- Accept (logged in, ready to confirm) -->
     <div id="state-accept" class="invite-card" style="display:none">
       <div class="invite-logo">
-        <div class="logo-icon">⚡</div>
+        <div class="logo-icon"><i class="fa-solid fa-bolt"></i></div>
         <span class="logo-name">TaskFlow</span>
       </div>
       <div style="text-align:center;margin-top:8px">
-        <div style="font-size:44px;margin-bottom:10px">👋</div>
+        <div style="font-size:44px;margin-bottom:10px;color:var(--accent)"><i class="fa-solid fa-hand"></i></div>
         <h2 style="font-size:18px;margin-bottom:4px">You're invited!</h2>
         <p style="font-size:13px;color:var(--text-2);margin-bottom:4px">Join workspace</p>
         <p id="accept-ws-name" style="font-size:22px;font-weight:700;color:var(--accent);margin-bottom:6px"></p>
@@ -107,10 +108,10 @@
     <!-- Success -->
     <div id="state-success" class="invite-card" style="display:none">
       <div style="text-align:center">
-        <div style="font-size:48px;margin-bottom:10px">🎉</div>
+        <div style="font-size:48px;margin-bottom:10px;color:var(--green)"><i class="fa-solid fa-circle-check"></i></div>
         <h2 style="font-size:18px;margin-bottom:8px">You're in!</h2>
         <p id="success-msg" style="font-size:13px;color:var(--text-2);margin-bottom:20px">Redirecting to dashboard…</p>
-        <a href="dashboard.html" class="btn btn-primary">Open Dashboard →</a>
+        <a href="dashboard.html" class="btn btn-primary" style="gap:6px">Open Dashboard <i class="fa-solid fa-arrow-right"></i></a>
       </div>
     </div>
 

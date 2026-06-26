@@ -108,7 +108,7 @@ $(document).ready(function () {
     $(this).text('Loading...').prop('disabled', true);
     const { error } = await supabase.auth.signInAnonymously();
     if (error) {
-      $(this).text('Continue without account →').prop('disabled', false);
+      $(this).html('Continue without account <i class="fa-solid fa-arrow-right"></i>').prop('disabled', false);
       APP.toast('Could not start guest session', 'error');
       return;
     }

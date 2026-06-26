@@ -1093,6 +1093,13 @@ a.nav-item { text-decoration: none; box-sizing: border-box; }
 .diagram-card-body { padding: 14px; }
 .diagram-card-name { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
 .diagram-card-meta { font-size: 11px; color: var(--text-3); }
+.diagram-card-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  padding: 0 8px 8px;
+}
+.diagram-card-actions .btn-sm { font-size: 11px; }
 
 /* ── Workspace Selector Dropdown ──────────────────────────── */
 .ws-dropdown {
@@ -1142,6 +1149,8 @@ a.nav-item { text-decoration: none; box-sizing: border-box; }
   border: 2px solid transparent;
 }
 .color-swatch:hover, .color-swatch.selected { transform: scale(1.2); border-color: #fff; }
+html[data-theme="light"] .color-swatch:hover,
+html[data-theme="light"] .color-swatch.selected { border-color: #000; }
 
 /* ── Progress Bar ──────────────────────────────────────────── */
 .progress-bar { height: 4px; background: var(--bg-4); border-radius: var(--radius-full); overflow: hidden; }
@@ -1247,6 +1256,19 @@ a.nav-item { text-decoration: none; box-sizing: border-box; }
 .list-chip:hover { background: var(--bg-4); color: var(--text-1); }
 .list-chip.active { color: #fff; border-color: transparent; }
 .list-dot { width: 7px; height: 7px; border-radius: 50%; }
+.list-chip-edit,
+.list-chip-del {
+  margin-left: 1px;
+  opacity: 0.5;
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: var(--radius-full);
+  transition: all var(--transition);
+}
+.list-chip-edit:hover { opacity: 1; background: var(--bg-5); color: var(--text-1); }
+.list-chip-del:hover { opacity: 1; background: var(--red-bg); color: var(--red); }
+.list-chip-del.confirm { opacity: 1; background: var(--red); color: #fff; }
 
 /* ── Tooltip ───────────────────────────────────────────────── */
 [data-tooltip] { position: relative; }

@@ -547,3 +547,60 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN
   ALTER PUBLICATION supabase_realtime ADD TABLE todo_comments;
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- ============================================================
+-- Feature: Join requests (admin approval before joining by code)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS join_requests (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE NOT NULL,
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'rejected')),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(workspace_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_join_requests_workspace ON join_requests(workspace_id);
+
+-- FK to profiles so PostgREST can embed the requester's display name
+ALTER TABLE join_requests
+  DROP CONSTRAINT IF EXISTS fk_join_requests_profiles,
+  ADD CONSTRAINT fk_join_requests_profiles
+    FOREIGN KEY (user_id) REFERENCES profiles(id) ON DELETE CASCADE;
+
+GRANT ALL ON join_requests TO anon, authenticated, service_role;
+
+ALTER TABLE join_requests ENABLE ROW LEVEL SECURITY;
+
+-- Requester sees their own requests; owners/admins see their workspace's requests
+DROP POLICY IF EXISTS "View join requests" ON join_requests;
+CREATE POLICY "View join requests"
+  ON join_requests FOR SELECT USING (
+    user_id = auth.uid() OR is_ws_admin(workspace_id)
+  );
+
+-- A user can request to join on their own behalf
+DROP POLICY IF EXISTS "Create own join request" ON join_requests;
+CREATE POLICY "Create own join request"
+  ON join_requests FOR INSERT WITH CHECK (
+    user_id = auth.uid()
+  );
+
+-- Owners/admins approve or reject requests
+DROP POLICY IF EXISTS "Admins update join requests" ON join_requests;
+CREATE POLICY "Admins update join requests"
+  ON join_requests FOR UPDATE USING (
+    is_ws_admin(workspace_id)
+  );
+
+-- Owners/admins or the requester can remove a request
+DROP POLICY IF EXISTS "Delete join requests" ON join_requests;
+CREATE POLICY "Delete join requests"
+  ON join_requests FOR DELETE USING (
+    is_ws_admin(workspace_id) OR user_id = auth.uid()
+  );
+
+DO $$ BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE join_requests;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;

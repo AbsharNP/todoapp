@@ -477,7 +477,7 @@ function renderMembers() {
           <option value="member" ${m.role === 'member' ? 'selected' : ''}>member</option>
           <option value="admin" ${m.role === 'admin' ? 'selected' : ''}>admin</option>
         </select>
-        <button class="btn btn-ghost btn-icon-sm member-remove" data-id="${escHtml(m.user_id)}" data-name="${escHtml(name)}" data-tooltip="Remove from team"><i class="fa-solid fa-user-minus"></i></button>
+        <button class="btn btn-ghost btn-sm member-remove" data-id="${escHtml(m.user_id)}" data-name="${escHtml(name)}" data-tooltip="Remove from team"><i class="fa-solid fa-user-minus"></i></button>
       `;
     } else if (isSelf && m.role !== 'owner') {
       // Any non-owner member can leave the workspace themselves
@@ -1177,6 +1177,7 @@ function switchPanel(name) {
     TEAM.applyPermissions();
     TEAM.loadInvites();
     TEAM.loadJoinCode();
+    TEAM.loadJoinRequests();
   }
 }
 

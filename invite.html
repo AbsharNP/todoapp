@@ -220,7 +220,14 @@
         showState('auth');
       } else {
         $('#accept-ws-name').text(targetWsName);
-        $('#accept-role-text').text(`You'll join as a ${inviteData ? inviteData.role : 'member'}`);
+        if (inviteData) {
+          $('#accept-role-text').text(`You'll join as a ${inviteData.role}`);
+          $('#btn-accept-invite').text('Accept & Join Workspace');
+        } else {
+          // Join-by-code requires admin approval
+          $('#accept-role-text').text('An admin will review your request before you join.');
+          $('#btn-accept-invite').text('Request to Join');
+        }
         showState('accept');
       }
     }
@@ -248,7 +255,28 @@
         return;
       }
 
-      const role = inviteData ? inviteData.role : 'member';
+      // Join-by-code (no invite token) → create a request; an admin must approve.
+      if (!inviteData) {
+        const { data: existingReq } = await supabase
+          .from('join_requests')
+          .select('id')
+          .eq('workspace_id', targetWsId)
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (!existingReq) {
+          const { error: reqError } = await supabase
+            .from('join_requests')
+            .insert({ workspace_id: targetWsId, user_id: userId });
+          if (reqError) return showError('Error', 'Could not send your join request. Please try again.');
+        }
+
+        $('#success-msg').text(`Your request to join ${targetWsName} has been sent. An admin will review it shortly.`);
+        showState('success');
+        return;
+      }
+
+      const role = inviteData.role;
       const { error: memberError } = await supabase
         .from('workspace_members')
         .insert({ workspace_id: targetWsId, user_id: userId, role });
@@ -313,7 +341,7 @@
       });
 
       $('#btn-accept-invite').on('click', async function () {
-        $(this).text('Joining…').prop('disabled', true);
+        $(this).text('Working…').prop('disabled', true);
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) { window.location.href = 'index.html'; return; }
         await doAccept(session.user.id, session.user.email);

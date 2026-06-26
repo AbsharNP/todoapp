@@ -12,6 +12,50 @@ const TEAM = {
     if (!admin) $('#join-code-section').hide();
     $('#pending-invites-title').toggle(admin);
     if (!admin) $('#invites-list').hide();
+    $('#join-requests-title').toggle(admin);
+    if (!admin) $('#join-requests-list').hide();
+  },
+
+  // Pending requests from users who entered the join code (admins only).
+  async loadJoinRequests() {
+    if (!currentWsId) return;
+    const admin = (typeof resolveWsAdmin === 'function') ? await resolveWsAdmin() : false;
+    if (!admin) { $('#join-requests-title, #join-requests-list').hide(); return; }
+
+    const { data } = await supabase
+      .from('join_requests')
+      .select('*, profiles(*)')
+      .eq('workspace_id', currentWsId)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: true });
+
+    const reqs = data || [];
+    $('#join-requests-title').show();
+    $('#join-requests-list').show();
+
+    if (!reqs.length) {
+      $('#join-requests-list').html(`<p style="font-size:13px;color:var(--text-3)">No pending join requests.</p>`);
+      return;
+    }
+
+    $('#join-requests-list').html(reqs.map(r => {
+      const name = r.profiles?.display_name || 'Unknown';
+      return `
+        <div class="invite-card">
+          <div>
+            <div class="invite-email">${escHtml(name)}</div>
+            <div style="font-size:11px;color:var(--text-3);margin-top:2px">Requested ${APP.formatDate(r.created_at)}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <button class="btn btn-primary btn-sm jr-accept" data-id="${escHtml(r.id)}" data-user="${escHtml(r.user_id)}" data-name="${escHtml(name)}">Accept</button>
+            <button class="btn btn-ghost btn-sm jr-reject" data-id="${escHtml(r.id)}" data-name="${escHtml(name)}">Reject</button>
+          </div>
+        </div>
+      `;
+    }).join(''));
+
+    $('.jr-accept').on('click', acceptJoinRequest);
+    $('.jr-reject').on('click', rejectJoinRequest);
   },
 
   async loadJoinCode() {
@@ -229,30 +273,45 @@ $(document).ready(function () {
       return;
     }
 
-    const { error: memberErr } = await supabase
-      .from('workspace_members')
-      .insert({ workspace_id: ws.id, user_id: APP.currentUser.id, role: 'member' });
+    // Already requested? Don't create a duplicate.
+    const { data: existingReq } = await supabase
+      .from('join_requests')
+      .select('id')
+      .eq('workspace_id', ws.id)
+      .eq('user_id', APP.currentUser.id)
+      .maybeSingle();
 
-    if (memberErr) {
-      $(feedbackSel).text('Failed to join. Please try again.').show();
+    if (existingReq) {
+      APP.toast(`You've already requested to join "${ws.name}". Waiting for an admin to approve.`, 'info');
+      closeModal('modal-join-workspace');
       btnEl.text(btnEl.data('label')).prop('disabled', false);
       return;
     }
 
-    APP.toast(`Joined "${ws.name}"!`, 'success');
+    // Create a join request — an admin must approve before the user joins.
+    const { error: reqErr } = await supabase
+      .from('join_requests')
+      .insert({ workspace_id: ws.id, user_id: APP.currentUser.id });
+
+    if (reqErr) {
+      $(feedbackSel).text('Failed to send join request. Please try again.').show();
+      btnEl.text(btnEl.data('label')).prop('disabled', false);
+      return;
+    }
+
+    APP.toast(`Request to join "${ws.name}" sent! An admin will review it.`, 'success');
     closeModal('modal-join-workspace');
-    localStorage.setItem('taskflow_ws', ws.id);
-    window.location.reload();
+    btnEl.text(btnEl.data('label')).prop('disabled', false);
   }
 
   // Submit join-by-code (workspace dropdown modal)
-  $('#btn-submit-join-ws').data('label', 'Join Workspace').on('click', async function () {
+  $('#btn-submit-join-ws').data('label', 'Request to Join').on('click', async function () {
     const code = $('#join-ws-code-input').val().trim().toUpperCase();
     if (code.length !== 6) {
       $('#join-ws-feedback').text('Please enter a 6-character code.').show();
       return;
     }
-    $(this).text('Joining…').prop('disabled', true);
+    $(this).text('Sending request…').prop('disabled', true);
     $('#join-ws-feedback').hide();
     await joinByCode(code, '#join-ws-feedback', $(this));
   });
@@ -288,4 +347,44 @@ $(document).ready(function () {
 
 function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+// Approve a join request: add the user as a member, then clear the request.
+async function acceptJoinRequest() {
+  const $btn = $(this);
+  const reqId = $btn.data('id');
+  const userId = $btn.data('user');
+  const name = $btn.data('name');
+  $btn.prop('disabled', true).text('Accepting…');
+
+  const { error: memberErr } = await supabase
+    .from('workspace_members')
+    .insert({ workspace_id: currentWsId, user_id: userId, role: 'member' });
+
+  if (memberErr) {
+    APP.toast('Failed to add member', 'error');
+    $btn.prop('disabled', false).text('Accept');
+    return;
+  }
+
+  await supabase.from('join_requests').delete().eq('id', reqId);
+  APP.toast(`${name} added to the team`, 'success');
+  TEAM.loadJoinRequests();
+  if (typeof loadMembers === 'function') loadMembers();
+}
+
+// Reject (and remove) a join request.
+async function rejectJoinRequest() {
+  const $btn = $(this);
+  const reqId = $btn.data('id');
+  const name = $btn.data('name');
+  if (!$btn.data('confirming')) {
+    $btn.data('confirming', true).text('Confirm reject').addClass('btn-danger');
+    setTimeout(() => $btn.data('confirming', false).text('Reject').removeClass('btn-danger'), 4000);
+    return;
+  }
+  const { error } = await supabase.from('join_requests').delete().eq('id', reqId);
+  if (error) { APP.toast('Failed to reject request', 'error'); return; }
+  APP.toast(`Request from ${name} rejected`, 'info');
+  TEAM.loadJoinRequests();
 }

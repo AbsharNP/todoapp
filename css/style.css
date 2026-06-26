@@ -1035,8 +1035,9 @@ a.nav-item { text-decoration: none; box-sizing: border-box; }
   text-transform: capitalize;
 }
 .member-role-select:hover { border-color: var(--border-focus); }
-.member-remove { color: var(--text-3); }
+.member-remove { color: var(--red); gap: 6px; }
 .member-remove:hover { color: var(--red); background: var(--red-bg); }
+.member-remove i { font-size: 12px; }
 
 .invite-card {
   background: var(--bg-2);

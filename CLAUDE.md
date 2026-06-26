@@ -89,7 +89,7 @@ Or drag the folder into the Vercel dashboard. No build step needed — it's all 
 - `APP.theme.init()` — reads stored preference and applies `data-theme` attribute to `<html>`
 - `APP.theme.toggle()` — switches theme and updates all `.theme-toggle-icon` / `.theme-toggle-label` elements
 - Diagram canvas stays dark in both modes (overridden in `diagram.css`)
-- Button icon convention: shows the **target** mode icon (☀️ when dark → click for light; 🌙 when light → click for dark)
+- Button icon convention: shows the **target** mode icon — `fa-sun` when dark (click for light), `fa-moon` when light (click for dark). `APP.theme._updateButtons()` swaps the FA `<i>` inside `.theme-toggle-icon` via `.html()`.
 
 ### Collapsible Sidebar
 - Collapse button (`◀`) at the bottom of the sidebar nav
@@ -124,12 +124,12 @@ Or drag the folder into the Vercel dashboard. No build step needed — it's all 
 - No email-sending service required — the link is copied manually
 
 ### Todos / Kanban
-- Tasks live in **Lists** (color-coded) inside a workspace
-- Kanban columns: Todo → In Progress → Done
-- Priority levels: low / medium / high / urgent
-- Due dates, assignees, descriptions supported
-- Click a card to open detail/edit modal
-- Export tasks as JSON; import from JSON file
+- Tasks live in **Lists** (color-coded) inside a workspace. Lists support full CRUD: create, **rename + recolor** (`openRenameListModal`/`renameList`, ✏️ chip icon), **delete** (🗑️ chip icon, two-click confirm, cascades its todos).
+- Kanban columns: Todo → In Progress → Done. Each column is min 200px / **max 340px** tall, then `.kanban-col-body` scrolls internally (`css/style.css`).
+- Priority levels: low / medium / high / urgent. Due dates, assignees, descriptions supported.
+- Click a card to open detail/edit modal. Export tasks as JSON; import from JSON file.
+- **Completion lock**: when a task becomes `done`, `completed_at` is stamped. For `COMPLETION_LOCK_MS` (30 s) it stays editable/draggable; after that it **locks** — not draggable, checkbox blocked, detail modal opens view-only. `isTaskLocked()` enforces it live; `scheduleLockRefresh()` re-renders when a grace window expires. Cards show the completion date/time (`formatDateTime`).
+- **Status audit**: every status change stamps `status_updated_by` + `status_updated_at` (`statusStamp()`); shown in the detail modal (`#detail-status-meta`) and on done cards via `memberName()`.
 
 ### Diagram builder
 - Two modes per-diagram: **Flowchart** or **ER Diagram** (toggled via the type badge in the header)
@@ -146,6 +146,7 @@ Or drag the folder into the Vercel dashboard. No build step needed — it's all 
 - Diagrams auto-save (2 s debounce after last change) via `scheduleSave()`
 - Export as `.svg` or `.json`; import diagram from `.json`
 - Share link: marks diagram `is_public = true`, copies URL to clipboard
+- **Dashboard diagram grid** (Diagrams panel): each card has Export / **Rename** (`openRenameDiagramModal`/`renameDiagramFromDashboard`) / **Delete** (two-click confirm) — see `renderDiagrams()` in `dashboard.js`
 
 ### Diagram read-only mode
 - When a user views a diagram they are **not** a workspace member of (e.g. via shared public link), the editor enters read-only mode automatically
@@ -184,8 +185,9 @@ APP.theme._updateButtons()    // sync .theme-toggle-icon / .theme-toggle-label e
 | `workspaces` | Team workspaces (name, description, owner, join_code) |
 | `workspace_members` | Many-to-many users ↔ workspaces with roles (`owner` / `admin` / `member`) |
 | `invites` | Pending invite tokens (email-based link invites) |
+| `join_requests` | Pending join-by-code requests awaiting admin approval (`workspace_id`, `user_id`, `status`) |
 | `todo_lists` | Color-coded task lists inside a workspace |
-| `todos` | Individual tasks with status, priority, due date, assignee |
+| `todos` | Tasks: status, priority, due date, assignee, **`completed_at`**, **`status_updated_by`**, **`status_updated_at`** |
 | `diagrams` | Saved diagram JSON (`data` JSONB: `{nodes, edges}`), `is_public` flag |
 
 All tables have **Row Level Security** enabled. Key RLS helpers:
@@ -219,7 +221,10 @@ All colors are CSS custom properties in `:root`. Dark mode is the default; light
 - No build system — `<script>` import order matters: `config.js` must load first
 - `escHtml()` is defined in both `dashboard.js` and `diagram.js` — always escape user content before injecting into the DOM
 - Do not use `alert()` — use `APP.toast()`
-- Do not use `confirm()` — use a modal or inline confirmation UI
+- Do not use `confirm()` — use a modal or inline confirmation UI (the two-click button pattern: first click arms + warns, second within ~4 s acts)
+- Icons are Font Awesome `<i class="fa-solid fa-...">`. Any new external resource (CDN) must be added to the `vercel.json` CSP, or production blocks it.
+- Admin-only UI: gate with `isWsAdmin()`/`resolveWsAdmin()` and `TEAM.applyPermissions()`; default such elements to `display:none` and reveal for admins (fail closed). RLS is the real enforcement; UI gating just hides what would fail.
+- Run `node --check js/<file>.js` after editing JS to catch syntax errors (no build step / linter)
 - Theme initialization must happen before CSS renders: inline script in `<head>` on every page
 - Diagram auto-save uses a 2 s debounce (`scheduleSave()`); all write operations must call it after changes
 - The `isReadOnly` flag in `diagram.js` guards all mutation paths — check it before adding new write operations to the diagram editor
@@ -229,12 +234,14 @@ All colors are CSS custom properties in `:root`. Dark mode is the default; light
 
 ## Still to build
 
-- `invite.html` — accept-invite page (fetch invite by token, join workspace, redirect)
-- Real-time updates via Supabase `channel().on('postgres_changes', ...)` for multi-user live sync
 - Email delivery for invites (Supabase Edge Functions + Resend)
-- Mobile sidebar toggle / responsive layout
-- Drag-to-reorder tasks within a column
+- Server-side enforcement (RLS/trigger) of the 30 s completion lock — currently client-side only
+- Live notification to the requester when a join request is approved (table is in the realtime publication; no client channel yet)
 - Subscription / monetization layer (planned: freemium via LemonSqueezy or Paddle)
 
+## Done (was "still to build")
 
-v
+- `invite.html` accept-invite page (token invites join directly; `?code=` creates a join request)
+- Realtime multi-user sync (`subscribeRealtime()` in `dashboard.js`: todos, todo_lists, todo_comments; join_requests in publication)
+- Mobile sidebar drawer + responsive layout
+- Drag-to-reorder tasks within / across columns (`persistKanbanOrder`)

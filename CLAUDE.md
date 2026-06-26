@@ -27,15 +27,17 @@ A collaborative task management app with a kanban board, ER/flowchart diagram bu
 │   ├── style.css       # Global design system (vars, components, light/dark, sidebar)
 │   └── diagram.css     # Diagram editor styles + read-only / inline text editor styles
 ├── js/
-│   ├── config.js       # Supabase client + APP helpers + APP.theme (light/dark)
+│   ├── config.js       # Supabase client + APP helpers + APP.theme (light/dark) + APP.toast (FA icons)
 │   ├── auth.js         # Login / signup logic
-│   ├── dashboard.js    # Shared app logic for dashboard.html + tasks.html: workspaces, lists, kanban (drag-reorder), todos, comments, realtime sync, overview stats, diagrams, sidebar
-│   ├── team.js         # Member listing, invite link generation, join-by-code modal
+│   ├── dashboard.js    # Shared app logic for dashboard.html + tasks.html: workspaces, lists (CRUD), kanban (drag-reorder, completion lock), todos, comments, realtime sync, overview stats, diagrams (CRUD), sidebar, member management (role edit / remove / leave), admin helpers (isWsAdmin / resolveWsAdmin)
+│   ├── team.js         # TEAM.* — invites, join code, join requests (admin approval), applyPermissions (gates admin-only UI), accept/reject join requests
 │   └── diagram.js      # SVG diagram builder — nodes, edges, tools, read-only mode, inline text editor
 ├── supabase/
-│   └── schema.sql      # Full DB schema + RLS policies (run once in Supabase SQL editor)
-└── vercel.json         # Vercel routing + security headers
+│   └── schema.sql      # Full DB schema + RLS policies (run once in Supabase SQL editor; idempotent — safe to re-run after changes)
+└── vercel.json         # Vercel routing + CSP/security headers (CSP must allowlist any new CDN)
 ```
+
+> Icons: **Font Awesome 6.5 Free** via CDN (`<i class="fa-solid fa-...">`). Loaded with a `<link>` in every page's `<head>`. The CDN (`cdn.jsdelivr.net`) is allowlisted in `vercel.json` CSP under `style-src` **and** `font-src` (the latter is needed for the glyph webfonts). Some glyphs inside the diagram SVG canvas (`diagram.js` makeText, palette previews) stay as Unicode since FA can't render inside `<svg><text>`.
 
 ## First-time setup
 
@@ -104,11 +106,16 @@ Or drag the folder into the Vercel dashboard. No build step needed — it's all 
 - Selected workspace stored in `localStorage` key `taskflow_ws`
 - Create workspace via modal; delete in Settings panel (owner only)
 
-### Join by Code
+### Join by Code → request + admin approval
 - Admins generate a 6-character alphanumeric join code (expires 7 days) in the Team panel
-- "Generate Code" and "Join by Code" buttons share one section header row in the Team panel
-- "Join by Code" opens a popup modal (same modal used by the sidebar workspace dropdown)
-- `joinByCode()` in `team.js` is the shared logic for both entry points
+- Entering a code (in-app modal **or** `invite.html?code=`) creates a **pending `join_requests` row** — it does NOT join immediately. An owner/admin must Accept.
+- `joinByCode()` in `team.js` is the shared logic (in-app); `invite.html` `?code=` path mirrors it. The `?token=` invite-link path still joins directly (explicit admin invite).
+- Admin "Join Requests" section in the Team panel: `TEAM.loadJoinRequests()` + `acceptJoinRequest()` (adds member, deletes request) / `rejectJoinRequest()` (deletes request).
+
+### Team management (Team panel)
+- **Role edit / remove**: owners/admins get a role dropdown (member↔admin) + Remove button per member row (`changeMemberRole` / `removeMember` in `dashboard.js`). Cannot target the owner or yourself.
+- **Leave workspace**: non-owner members get a Leave button on their own row (`leaveWorkspace`). Owner must delete the workspace instead.
+- **Admin-only gating**: `isWsAdmin()` (cached) and `resolveWsAdmin()` (queries role if cache cold) in `dashboard.js`. `TEAM.applyPermissions()` shows/hides invite controls, Generate Code, the join code itself, Pending Invites, and Join Requests — all admin-only; members see only the roster + "Join by Code". UI elements default to `display:none` and are revealed for admins (fail closed).
 
 ### Team invites (link-based)
 - Admins generate a shareable invite link (token stored in `invites` table)

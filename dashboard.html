@@ -176,23 +176,23 @@
       <div class="panel" id="panel-team">
         <div class="section-header">
           <h2 class="section-title">Team Members</h2>
-          <button class="btn btn-primary btn-sm" id="btn-invite" data-tooltip="Invite a new team member">+ Invite Member</button>
+          <button class="btn btn-primary btn-sm" id="btn-invite" data-tooltip="Invite a new team member" style="display:none"><i class="fa-solid fa-plus"></i> Invite Member</button>
         </div>
         <div id="members-list" class="team-grid" style="margin-bottom:28px"></div>
 
         <div class="section-header">
-          <h3 class="section-title" style="font-size:14px">Pending Invites</h3>
+          <h3 class="section-title" id="pending-invites-title" style="font-size:14px;display:none">Pending Invites</h3>
         </div>
-        <div id="invites-list" class="team-grid"></div>
+        <div id="invites-list" class="team-grid" style="display:none"></div>
 
         <div class="section-header" style="margin-top:28px">
-          <h3 class="section-title" style="font-size:14px">Join Code</h3>
-          <div style="display:flex;gap:8px">
+          <h3 class="section-title" id="join-code-title" style="font-size:14px;display:none">Join Code</h3>
+          <div style="display:flex;gap:8px;margin-left:auto">
             <button class="btn btn-ghost btn-sm" id="btn-join-ws-from-team" data-tooltip="Join a workspace using a 6-character code">Join by Code</button>
-            <button class="btn btn-secondary btn-sm" id="btn-regen-join-code" data-tooltip="Generate a shareable 6-character code that expires in 7 days">Generate Code</button>
+            <button class="btn btn-secondary btn-sm" id="btn-regen-join-code" data-tooltip="Generate a shareable 6-character code that expires in 7 days" style="display:none">Generate Code</button>
           </div>
         </div>
-        <div id="join-code-section">
+        <div id="join-code-section" style="display:none">
           <p style="font-size:12px;color:var(--text-3)">No join code yet. Generate one so teammates can join without an email invite.</p>
         </div>
       </div>

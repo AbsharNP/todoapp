@@ -1022,6 +1022,21 @@ a.nav-item { text-decoration: none; box-sizing: border-box; }
 .role-owner { background: var(--accent-light); color: var(--accent); }
 .role-admin { background: var(--blue-bg); color: var(--blue); }
 .role-member { background: var(--bg-4); color: var(--text-2); }
+.member-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.member-role-select {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 8px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-3);
+  color: var(--text-1);
+  cursor: pointer;
+  text-transform: capitalize;
+}
+.member-role-select:hover { border-color: var(--border-focus); }
+.member-remove { color: var(--text-3); }
+.member-remove:hover { color: var(--red); background: var(--red-bg); }
 
 .invite-card {
   background: var(--bg-2);

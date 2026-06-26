@@ -431,11 +431,34 @@ async function loadMembers() {
   renderAssigneeOptions();
 }
 
+// True if the current user is an owner/admin of the active workspace.
+function isWsAdmin() {
+  if (APP.isGuest()) return false;
+  const me = allMembers.find(m => m.user_id === APP.currentUser.id);
+  return !!(me && (me.role === 'owner' || me.role === 'admin'));
+}
+
+// Admin status that stays correct even before the member cache has loaded
+// (e.g. arriving via dashboard.html#team). Queries the role directly as a fallback.
+async function resolveWsAdmin() {
+  if (APP.isGuest() || !currentWsId) return false;
+  if (allMembers.length) return isWsAdmin();
+  const { data } = await supabase
+    .from('workspace_members')
+    .select('role')
+    .eq('workspace_id', currentWsId)
+    .eq('user_id', APP.currentUser.id)
+    .maybeSingle();
+  return !!(data && (data.role === 'owner' || data.role === 'admin'));
+}
+
 function renderMembers() {
   if (!allMembers.length) {
     $('#members-list, #overview-team').html('<div class="empty-state"><p>No members yet. Invite your team!</p></div>');
     return;
   }
+
+  const iAmAdmin = isWsAdmin();
 
   const html = allMembers.map(m => {
     const name = m.profiles?.display_name || 'Unknown';
@@ -444,6 +467,26 @@ function renderMembers() {
     const colors = ['#6366f1','#8b5cf6','#ec4899','#f59e0b','#10b981','#3b82f6'];
     const color = colors[name.charCodeAt(0) % colors.length];
     const safeRole = escHtml(m.role);
+    const isSelf = m.user_id === APP.currentUser.id;
+    const roleBadge = `<span class="member-role role-${safeRole}">${safeRole}</span>`;
+    let controls;
+    if (iAmAdmin && m.role !== 'owner' && !isSelf) {
+      // Admins/owners can manage everyone except the workspace owner and themselves
+      controls = `
+        <select class="member-role-select" data-id="${escHtml(m.user_id)}" data-tooltip="Change role">
+          <option value="member" ${m.role === 'member' ? 'selected' : ''}>member</option>
+          <option value="admin" ${m.role === 'admin' ? 'selected' : ''}>admin</option>
+        </select>
+        <button class="btn btn-ghost btn-icon-sm member-remove" data-id="${escHtml(m.user_id)}" data-name="${escHtml(name)}" data-tooltip="Remove from team"><i class="fa-solid fa-user-minus"></i></button>
+      `;
+    } else if (isSelf && m.role !== 'owner') {
+      // Any non-owner member can leave the workspace themselves
+      controls = `${roleBadge}
+        <button class="btn btn-ghost btn-sm member-leave" data-tooltip="Leave this workspace"><i class="fa-solid fa-right-from-bracket"></i> Leave</button>
+      `;
+    } else {
+      controls = roleBadge;
+    }
     return `
       <div class="member-card">
         <div class="avatar" style="width:40px;height:40px;background:${color};font-size:15px;font-weight:700;color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center">${initials}</div>
@@ -451,12 +494,16 @@ function renderMembers() {
           <div class="member-name">${escHtml(name)}</div>
           <div class="member-email">${escHtml(email)}</div>
         </div>
-        <span class="member-role role-${safeRole}">${safeRole}</span>
+        <div class="member-actions">${controls}</div>
       </div>
     `;
   }).join('');
 
   $('#members-list').html(html);
+  $('#members-list .member-role-select').on('change', changeMemberRole);
+  $('#members-list .member-remove').on('click', removeMember);
+  $('#members-list .member-leave').on('click', leaveWorkspace);
+  if (window.TEAM && TEAM.applyPermissions) TEAM.applyPermissions();
   $('#overview-team').html(allMembers.slice(0,4).map(m => {
     const name = m.profiles?.display_name || 'Unknown';
     const initials = escHtml(name.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase());
@@ -471,6 +518,62 @@ function renderMembers() {
       </div>
     `;
   }).join(''));
+}
+
+async function changeMemberRole() {
+  const userId = $(this).data('id');
+  const newRole = $(this).val();
+  const { error } = await supabase.from('workspace_members')
+    .update({ role: newRole })
+    .eq('workspace_id', currentWsId)
+    .eq('user_id', userId);
+  if (error) { APP.toast('Failed to update role', 'error'); await loadMembers(); return; }
+  APP.toast(`Role updated to ${newRole}`, 'success');
+  await loadMembers();
+}
+
+async function removeMember() {
+  const $btn = $(this);
+  const userId = $btn.data('id');
+  const name = $btn.data('name');
+  if (!$btn.data('confirming')) {
+    $btn.data('confirming', true).addClass('btn-danger');
+    APP.toast(`Click again to remove ${name} from the team`, 'warning');
+    setTimeout(() => $btn.data('confirming', false).removeClass('btn-danger'), 4000);
+    return;
+  }
+  const { error } = await supabase.from('workspace_members')
+    .delete()
+    .eq('workspace_id', currentWsId)
+    .eq('user_id', userId);
+  if (error) { APP.toast('Failed to remove member', 'error'); return; }
+  APP.toast(`${name} removed from the team`, 'info');
+  await loadMembers();
+}
+
+async function leaveWorkspace() {
+  const $btn = $(this);
+  if (!$btn.data('confirming')) {
+    $btn.data('confirming', true).addClass('btn-danger');
+    APP.toast('Click again to leave this workspace', 'warning');
+    setTimeout(() => $btn.data('confirming', false).removeClass('btn-danger'), 4000);
+    return;
+  }
+  const wsId = currentWsId;
+  const { error } = await supabase.from('workspace_members')
+    .delete()
+    .eq('workspace_id', wsId)
+    .eq('user_id', APP.currentUser.id);
+  if (error) { APP.toast('Failed to leave workspace', 'error'); return; }
+  APP.toast('You left the workspace', 'info');
+  workspaces = workspaces.filter(w => w.id !== wsId);
+  if (workspaces.length > 0) {
+    selectWorkspace(workspaces[0].id);
+  } else {
+    currentWsId = null;
+    localStorage.removeItem('taskflow_ws');
+    openModal('modal-new-workspace');
+  }
 }
 
 function renderAssigneeOptions() {
@@ -1071,6 +1174,7 @@ function switchPanel(name) {
       `);
       return;
     }
+    TEAM.applyPermissions();
     TEAM.loadInvites();
     TEAM.loadJoinCode();
   }

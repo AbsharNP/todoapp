@@ -316,6 +316,12 @@ CREATE POLICY "Owners/admins can remove members"
     is_ws_admin(workspace_id) OR user_id = auth.uid()
   );
 
+DROP POLICY IF EXISTS "Owners/admins can update member roles" ON workspace_members;
+CREATE POLICY "Owners/admins can update member roles"
+  ON workspace_members FOR UPDATE USING (
+    is_ws_admin(workspace_id)
+  );
+
 -- Invites
 DROP POLICY IF EXISTS "Members/invitees can view invites" ON invites;
 CREATE POLICY "Members/invitees can view invites"

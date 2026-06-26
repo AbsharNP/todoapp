@@ -3,8 +3,25 @@
 // ─────────────────────────────────────────────────────────────
 
 const TEAM = {
+  // Show invite-creation controls + the join code only to owners/admins.
+  async applyPermissions() {
+    const admin = (typeof resolveWsAdmin === 'function') ? await resolveWsAdmin() : false;
+    $('#btn-invite').toggle(admin);
+    $('#btn-regen-join-code').toggle(admin);
+    $('#join-code-title').toggle(admin);
+    if (!admin) $('#join-code-section').hide();
+    $('#pending-invites-title').toggle(admin);
+    if (!admin) $('#invites-list').hide();
+  },
+
   async loadJoinCode() {
     if (!currentWsId) return;
+
+    // The join code lets anyone join this workspace — members must not see it.
+    const admin = (typeof resolveWsAdmin === 'function') ? await resolveWsAdmin() : false;
+    if (!admin) { $('#join-code-section').hide(); return; }
+    $('#join-code-section').show();
+
     const { data: ws } = await supabase
       .from('workspaces')
       .select('join_code, join_code_expires_at')
@@ -46,6 +63,12 @@ const TEAM = {
 
   async loadInvites() {
     if (!currentWsId) return;
+
+    // Only owners/admins manage invites — members must not see pending invites.
+    const admin = (typeof resolveWsAdmin === 'function') ? await resolveWsAdmin() : false;
+    if (!admin) { $('#invites-list').hide(); return; }
+    $('#invites-list').show();
+
     const { data } = await supabase
       .from('invites')
       .select('*')
@@ -68,7 +91,7 @@ const TEAM = {
         </div>
         <div style="display:flex;align-items:center;gap:8px">
           <span class="invite-status status-${inv.status}">${inv.status}</span>
-          ${inv.status === 'pending' ? `<button class="btn btn-ghost btn-icon-sm revoke-invite" data-id="${inv.id}" title="Revoke"><i class="fa-solid fa-xmark"></i></button>` : ''}
+          ${inv.status === 'pending' && isWsAdmin() ? `<button class="btn btn-ghost btn-icon-sm revoke-invite" data-id="${inv.id}" title="Revoke"><i class="fa-solid fa-xmark"></i></button>` : ''}
         </div>
       </div>
     `).join(''));
@@ -91,6 +114,7 @@ const TEAM = {
 $(document).ready(function () {
   // Invite member button
   $('#btn-invite').on('click', function () {
+    if (!isWsAdmin()) return APP.toast('Only owners and admins can invite members', 'warning');
     $('#invite-email').val('');
     $('#invite-role').val('member');
     $('#invite-result').hide();
@@ -100,6 +124,7 @@ $(document).ready(function () {
 
   // Generate invite link
   $('#btn-send-invite').on('click', async function () {
+    if (!isWsAdmin()) return APP.toast('Only owners and admins can invite members', 'warning');
     const email = $('#invite-email').val().trim();
     if (!email || !isValidEmail(email)) return APP.toast('Enter a valid email address', 'warning');
     if (!currentWsId) return;
@@ -146,6 +171,7 @@ $(document).ready(function () {
 
   // Generate workspace join code (expires in 7 days)
   $('#btn-regen-join-code').on('click', async function () {
+    if (!isWsAdmin()) return APP.toast('Only owners and admins can generate a join code', 'warning');
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     const bytes = crypto.getRandomValues(new Uint8Array(6));
     let code = '';

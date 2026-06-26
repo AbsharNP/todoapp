@@ -144,7 +144,7 @@ const TEAM = {
       const $btn = $(this);
       if (!$btn.data('confirming')) {
         $btn.data('confirming', true).text('Sure?');
-        setTimeout(() => $btn.data('confirming', false).html('<i class="fa-solid fa-xmark"></i>'), 3000);
+        setTimeout(() => $btn.data('confirming', false).html('<i class="fa-solid fa-xmark"></i>'), 1000);
         return;
       }
       const id = $btn.data('id');

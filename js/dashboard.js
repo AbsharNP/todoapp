@@ -614,6 +614,55 @@ function getFilteredTodos() {
   return allTodos.filter(t => t.list_id === selectedListId);
 }
 
+// A completed task can still be undone/edited for this long, then it locks.
+const COMPLETION_LOCK_MS = 30000;
+
+// True once a done task's 30s grace window has elapsed — no more drag/edit.
+function isTaskLocked(todo) {
+  if (!todo || todo.status !== 'done' || !todo.completed_at) return false;
+  return (Date.now() - new Date(todo.completed_at).getTime()) > COMPLETION_LOCK_MS;
+}
+
+// 'Jun 23, 2026, 3:45 PM'
+function formatDateTime(str) {
+  if (!str) return '';
+  return new Date(str).toLocaleString(undefined, {
+    month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit'
+  });
+}
+
+// Display name for a workspace member by user id.
+function memberName(userId) {
+  if (!userId) return '';
+  const m = allMembers.find(x => x.user_id === userId);
+  if (m?.profiles?.display_name) return m.profiles.display_name;
+  if (userId === APP.currentUser?.id) return (APP.currentUser.email || '').split('@')[0] || 'You';
+  return 'Someone';
+}
+
+// Fields stamped whenever a task's status changes — records who and when.
+function statusStamp() {
+  return { status_updated_by: APP.currentUser.id, status_updated_at: new Date().toISOString() };
+}
+
+// After rendering, schedule a single re-render for when the next done task locks,
+// so cards visually lock the moment their grace window expires.
+let lockRefreshTimer = null;
+function scheduleLockRefresh() {
+  if (lockRefreshTimer) { clearTimeout(lockRefreshTimer); lockRefreshTimer = null; }
+  const now = Date.now();
+  let soonest = Infinity;
+  allTodos.forEach(t => {
+    if (t.status === 'done' && t.completed_at) {
+      const lockAt = new Date(t.completed_at).getTime() + COMPLETION_LOCK_MS;
+      if (lockAt > now && lockAt < soonest) soonest = lockAt;
+    }
+  });
+  if (soonest !== Infinity) {
+    lockRefreshTimer = setTimeout(renderKanban, soonest - now + 50);
+  }
+}
+
 function renderKanban() {
   const filtered = getFilteredTodos();
   const byStatus = {
@@ -646,11 +695,13 @@ function renderKanban() {
     const id = $card.data('id');
     const todo = allTodos.find(t => t.id === id);
     if (!todo) return;
+    if (isTaskLocked(todo)) { APP.toast('This completed task is locked', 'info'); return; }
     const newStatus = todo.status === 'done' ? 'todo' : 'done';
     updateTodoStatus(id, newStatus);
   });
 
   bindDragAndDrop();
+  scheduleLockRefresh();
 }
 
 // ── Drag-to-reorder kanban ────────────────────────────────────
@@ -658,6 +709,8 @@ let draggedTodoId = null;
 
 function bindDragAndDrop() {
   $('.task-card').off('dragstart dragend').on('dragstart', function (e) {
+    const todo = allTodos.find(t => t.id === $(this).data('id'));
+    if (isTaskLocked(todo)) { e.preventDefault(); return; }
     draggedTodoId = $(this).data('id');
     e.originalEvent.dataTransfer.effectAllowed = 'move';
     e.originalEvent.dataTransfer.setData('text/plain', String(draggedTodoId));
@@ -709,9 +762,19 @@ async function persistKanbanOrder() {
       const todo = allTodos.find(t => t.id === id);
       if (!todo) return;
       if (todo.position !== idx || todo.status !== status) {
+        const statusChanged = todo.status !== status;
         todo.position = idx;
         todo.status = status;
-        updates.push({ id, position: idx, status });
+        const update = { id, position: idx, status };
+        if (statusChanged) {
+          todo.completed_at = status === 'done' ? new Date().toISOString() : null;
+          const stamp = statusStamp();
+          Object.assign(todo, stamp);
+          update.completed_at = todo.completed_at;
+          update.status_updated_by = stamp.status_updated_by;
+          update.status_updated_at = stamp.status_updated_at;
+        }
+        updates.push(update);
       }
     });
     $(`#count-${status}`).text(ids.length);
@@ -722,10 +785,20 @@ async function persistKanbanOrder() {
   if (pending > 0) $('#badge-todos').text(pending).show(); else $('#badge-todos').hide();
   renderOverview();
 
+  // A status change toggles completion — re-render so the card shows its
+  // completed time and the lock timer gets scheduled.
+  if (updates.some(u => 'completed_at' in u)) renderKanban();
+
   if (!updates.length) return;
-  await Promise.all(updates.map(u =>
-    supabase.from('todos').update({ position: u.position, status: u.status }).eq('id', u.id)
-  ));
+  await Promise.all(updates.map(u => {
+    const patch = { position: u.position, status: u.status };
+    if ('completed_at' in u) {
+      patch.completed_at = u.completed_at;
+      patch.status_updated_by = u.status_updated_by;
+      patch.status_updated_at = u.status_updated_at;
+    }
+    return supabase.from('todos').update(patch).eq('id', u.id);
+  }));
 }
 
 function renderTaskCard(todo) {
@@ -736,9 +809,10 @@ function renderTaskCard(todo) {
   const assigneeName = assignee?.profiles?.display_name;
   const priority = escHtml(todo.priority);
   const commentCount = commentCounts[todo.id] || 0;
+  const locked = isTaskLocked(todo);
 
   return `
-    <div class="task-card" data-id="${escHtml(todo.id)}" draggable="true">
+    <div class="task-card ${locked ? 'locked' : ''}" data-id="${escHtml(todo.id)}" draggable="${locked ? 'false' : 'true'}">
       <div class="task-card-priority ${priority}"></div>
       <div class="task-card-header">
         <div class="task-check ${isDone ? 'checked' : ''}"></div>
@@ -748,6 +822,7 @@ function renderTaskCard(todo) {
         <span class="badge badge-${priority}">${priority}</span>
         ${todo.due_date ? `<span class="task-due ${isOverdue ? 'overdue' : ''}"><i class="fa-solid fa-calendar"></i> ${APP.formatDate(todo.due_date)}</span>` : ''}
         ${commentCount ? `<span class="task-comments" data-tooltip="${commentCount} comment${commentCount > 1 ? 's' : ''}"><i class="fa-solid fa-comment"></i> ${commentCount}</span>` : ''}
+        ${isDone && todo.completed_at ? `<span class="task-completed" data-tooltip="Completed ${escHtml(formatDateTime(todo.completed_at))}${todo.status_updated_by ? ' by ' + escHtml(memberName(todo.status_updated_by)) : ''}"><i class="fa-solid fa-circle-check"></i> ${escHtml(formatDateTime(todo.completed_at))}${todo.status_updated_by ? ' · ' + escHtml(memberName(todo.status_updated_by)) : ''}${locked ? ' <i class="fa-solid fa-lock" data-tooltip="Locked"></i>' : ''}</span>` : ''}
       </div>
       <div class="task-card-footer">
         ${list ? `<span class="task-list-badge" style="background:${safeCssColor(list.color)}">${escHtml(list.name)}</span>` : '<span></span>'}
@@ -759,9 +834,12 @@ function renderTaskCard(todo) {
 
 async function updateTodoStatus(id, status) {
   const todo = allTodos.find(t => t.id === id);
-  if (todo) todo.status = status;
+  const completed_at = status === 'done' ? new Date().toISOString() : null;
+  const stamp = statusStamp();
+  if (todo) { todo.status = status; todo.completed_at = completed_at; Object.assign(todo, stamp); }
   renderKanban();
-  await supabase.from('todos').update({ status }).eq('id', id);
+  renderOverview();
+  await supabase.from('todos').update({ status, completed_at, ...stamp }).eq('id', id);
 }
 
 function openNewTodoModal(status = 'todo') {
@@ -795,7 +873,9 @@ async function createTodo() {
     due_date: $('#todo-due').val() || null,
     assigned_to: $('#todo-assignee').val() || null,
     created_by: APP.currentUser.id,
-    position: allTodos.length
+    position: allTodos.length,
+    completed_at: $('#todo-status').val() === 'done' ? new Date().toISOString() : null,
+    ...statusStamp()
   };
 
   const { data, error } = await supabase.from('todos').insert(todo).select().single();
@@ -819,6 +899,24 @@ function openTodoDetail(id) {
   $('#detail-due').val(todo.due_date || '');
   $('#detail-assignee').val(todo.assigned_to || '');
 
+  // Who last changed the status, and when
+  if (todo.status_updated_by) {
+    const who = escHtml(memberName(todo.status_updated_by));
+    const when = todo.status_updated_at ? ' · ' + escHtml(formatDateTime(todo.status_updated_at)) : '';
+    $('#detail-status-meta')
+      .html(`<i class="fa-solid fa-clock-rotate-left"></i> Status last changed by ${who}${when}`)
+      .show();
+  } else {
+    $('#detail-status-meta').hide().empty();
+  }
+
+  // Completed tasks lock 30s after completion: view-only, no edit/delete.
+  const locked = isTaskLocked(todo);
+  $('#detail-title, #detail-desc, #detail-status, #detail-priority, #detail-due, #detail-assignee')
+    .prop('disabled', locked);
+  $('#btn-save-todo, #btn-delete-todo').toggle(!locked);
+  if (locked) APP.toast('This completed task is locked — view only', 'info');
+
   currentDetailTodoId = id;
   $('#comment-input').val('');
   $('#comments-list').html('<div class="comments-empty">Loading…</div>');
@@ -829,15 +927,23 @@ function openTodoDetail(id) {
 
 async function saveTodoDetail() {
   const id = $('#detail-todo-id').val();
+  const existing = allTodos.find(t => t.id === id);
+  const newStatus = $('#detail-status').val();
   const updates = {
     title: $('#detail-title').val().trim(),
     description: $('#detail-desc').val().trim() || null,
-    status: $('#detail-status').val(),
+    status: newStatus,
     priority: $('#detail-priority').val(),
     due_date: $('#detail-due').val() || null,
-    assigned_to: $('#detail-assignee').val() || null
+    assigned_to: $('#detail-assignee').val() || null,
+    completed_at: newStatus === 'done'
+      ? ((existing && existing.status === 'done' && existing.completed_at) ? existing.completed_at : new Date().toISOString())
+      : null
   };
   if (!updates.title) return APP.toast('Title is required', 'warning');
+
+  // Only stamp the status change when the status actually changed.
+  if (!existing || existing.status !== newStatus) Object.assign(updates, statusStamp());
 
   const { error } = await supabase.from('todos').update(updates).eq('id', id);
   if (error) return APP.toast('Failed to save', 'error');
@@ -1241,7 +1347,8 @@ async function importTodos(file) {
         due_date: todo.due_date || null,
         tags: todo.tags || [],
         created_by: APP.currentUser.id,
-        position: 0
+        position: 0,
+        completed_at: todo.status === 'done' ? new Date().toISOString() : null
       });
     }
     imported++;

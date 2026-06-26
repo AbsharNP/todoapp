@@ -604,3 +604,19 @@ CREATE POLICY "Delete join requests"
 DO $$ BEGIN
   ALTER PUBLICATION supabase_realtime ADD TABLE join_requests;
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- ============================================================
+-- Feature: Task completion timestamp (used to lock done tasks)
+-- ============================================================
+ALTER TABLE todos ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ;
+
+-- Backfill existing done tasks so they get a completion time (and lock).
+UPDATE todos SET completed_at = updated_at WHERE status = 'done' AND completed_at IS NULL;
+
+-- Track who last changed a task's status, and when.
+ALTER TABLE todos ADD COLUMN IF NOT EXISTS status_updated_by UUID REFERENCES auth.users(id) ON DELETE SET NULL;
+ALTER TABLE todos ADD COLUMN IF NOT EXISTS status_updated_at TIMESTAMPTZ;
+
+-- Seed existing tasks with a sensible default (creator / last touched).
+UPDATE todos SET status_updated_by = created_by WHERE status_updated_by IS NULL;
+UPDATE todos SET status_updated_at = updated_at WHERE status_updated_at IS NULL;

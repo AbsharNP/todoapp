@@ -984,6 +984,17 @@ a.nav-item { text-decoration: none; box-sizing: border-box; }
   gap: 3px;
 }
 .task-due.overdue { color: var(--red); }
+.task-completed {
+  font-size: 11px;
+  color: var(--green);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.task-card.locked { cursor: default; }
+.task-card.locked:hover { transform: none; }
+.task-card.locked .task-check { cursor: default; opacity: 0.7; }
+.task-card.locked .task-card-title { cursor: default; }
 
 .task-card-footer {
   display: flex;

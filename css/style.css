@@ -1129,6 +1129,59 @@ a.nav-item { text-decoration: none; box-sizing: border-box; }
 }
 .diagram-card-actions .btn-sm { font-size: 11px; }
 
+/* ── Notes ────────────────────────────────────────────────── */
+.note-preview {
+  height: 140px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+  text-align: left;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 14px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: hidden;
+  position: relative;
+}
+.note-preview::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 40px;
+  background: linear-gradient(transparent, var(--bg-3));
+}
+.note-empty { color: var(--text-4); font-style: italic; }
+
+.note-modal { display: flex; flex-direction: column; max-height: 88vh; }
+.note-title-input {
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  font-weight: 600;
+  padding: 4px 0;
+  flex: 1;
+  margin-right: 12px;
+}
+.note-title-input:focus { outline: none; box-shadow: none; }
+.note-body { flex: 1; display: flex; padding: 0; min-height: 0; }
+.note-textarea {
+  flex: 1;
+  width: 100%;
+  border: none;
+  resize: none;
+  background: var(--bg-1);
+  color: var(--text-1);
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.7;
+  padding: 20px 24px;
+  min-height: 360px;
+}
+.note-textarea:focus { outline: none; }
+.note-save-status { font-size: 12px; color: var(--green); min-width: 60px; text-align: right; }
+.note-meta { font-size: 12px; color: var(--text-3); margin-right: auto; }
+
 /* ── Workspace Selector Dropdown ──────────────────────────── */
 .ws-dropdown {
   position: absolute;

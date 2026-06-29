@@ -29,7 +29,7 @@ A collaborative task management app with a kanban board, ER/flowchart diagram bu
 ├── js/
 │   ├── config.js       # Supabase client + APP helpers + APP.theme (light/dark) + APP.toast (FA icons)
 │   ├── auth.js         # Login / signup logic
-│   ├── dashboard.js    # Shared app logic for dashboard.html + tasks.html: workspaces, lists (CRUD), kanban (drag-reorder, completion lock), todos, comments, realtime sync, overview stats, diagrams (CRUD), sidebar, member management (role edit / remove / leave), admin helpers (isWsAdmin / resolveWsAdmin)
+│   ├── dashboard.js    # Shared app logic for dashboard.html + tasks.html: workspaces, lists (CRUD), kanban (drag-reorder, completion lock), todos, comments, realtime sync, overview stats, diagrams (CRUD), notes (notepad CRUD), sidebar, member management (role edit / remove / leave), admin helpers (isWsAdmin / resolveWsAdmin)
 │   ├── team.js         # TEAM.* — invites, join code, join requests (admin approval), applyPermissions (gates admin-only UI), accept/reject join requests
 │   └── diagram.js      # SVG diagram builder — nodes, edges, tools, read-only mode, inline text editor
 ├── supabase/
@@ -131,6 +131,12 @@ Or drag the folder into the Vercel dashboard. No build step needed — it's all 
 - **Completion lock**: when a task becomes `done`, `completed_at` is stamped. For `COMPLETION_LOCK_MS` (30 s) it stays editable/draggable; after that it **locks** — not draggable, checkbox blocked, detail modal opens view-only. `isTaskLocked()` enforces it live; `scheduleLockRefresh()` re-renders when a grace window expires. Cards show the completion date/time (`formatDateTime`).
 - **Status audit**: every status change stamps `status_updated_by` + `status_updated_at` (`statusStamp()`); shown in the detail modal (`#detail-status-meta`) and on done cards via `memberName()`.
 
+### Notes (notepad)
+- A **Notes** nav item (Main section) opens the Notes panel in `dashboard.html` (`#panel-notes`). On `tasks.html` the nav item links to `dashboard.html#notes`.
+- Notes panel shows a grid of note cards (reuses `.diagrams-grid` / `.diagram-card`) with a text preview, title, last-edited date, and a two-click **Delete** button.
+- **New Note** creates an `Untitled` note row immediately, then opens the notepad editor (`#modal-note`) — a large monospace `<textarea>` with an inline title input. Save with the button or **Ctrl/Cmd+S**.
+- Notes are workspace-scoped (`notes` table). Logic lives in `dashboard.js` (`renderNotes` / `createNote` / `openNoteEditor` / `saveNote` / `deleteNote` / `deleteNoteById`); loaded in `loadAllData()` and refreshed via realtime (`handleNoteChange`, skips refresh while the editor modal is open).
+
 ### Diagram builder
 - Two modes per-diagram: **Flowchart** or **ER Diagram** (toggled via the type badge in the header)
 - Drag shapes from the left palette onto the SVG canvas
@@ -189,6 +195,7 @@ APP.theme._updateButtons()    // sync .theme-toggle-icon / .theme-toggle-label e
 | `todo_lists` | Color-coded task lists inside a workspace |
 | `todos` | Tasks: status, priority, due date, assignee, **`completed_at`**, **`status_updated_by`**, **`status_updated_at`** |
 | `diagrams` | Saved diagram JSON (`data` JSONB: `{nodes, edges}`), `is_public` flag |
+| `notes` | Notepad-style free-text notes per workspace (`title`, `content`) |
 
 All tables have **Row Level Security** enabled. Key RLS helpers:
 - `get_my_workspace_ids()` — returns workspace IDs for the current user

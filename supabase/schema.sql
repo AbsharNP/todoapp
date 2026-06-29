@@ -620,3 +620,44 @@ ALTER TABLE todos ADD COLUMN IF NOT EXISTS status_updated_at TIMESTAMPTZ;
 -- Seed existing tasks with a sensible default (creator / last touched).
 UPDATE todos SET status_updated_by = created_by WHERE status_updated_by IS NULL;
 UPDATE todos SET status_updated_at = updated_at WHERE status_updated_at IS NULL;
+
+-- ============================================================
+-- Feature: Notes (notepad-style free text per workspace)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS notes (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE NOT NULL,
+  title TEXT NOT NULL DEFAULT 'Untitled',
+  content TEXT NOT NULL DEFAULT '',
+  created_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_notes_workspace ON notes(workspace_id);
+
+GRANT ALL ON notes TO anon, authenticated, service_role;
+
+ALTER TABLE notes ENABLE ROW LEVEL SECURITY;
+
+-- Keep updated_at fresh on every edit.
+DROP TRIGGER IF EXISTS notes_updated_at ON notes;
+CREATE TRIGGER notes_updated_at BEFORE UPDATE ON notes FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- Workspace members can read every note in their workspaces.
+DROP POLICY IF EXISTS "Workspace members can view notes" ON notes;
+CREATE POLICY "Workspace members can view notes"
+  ON notes FOR SELECT USING (
+    workspace_id IN (SELECT get_my_workspace_ids())
+  );
+
+-- Workspace members can create / edit / delete notes in their workspaces.
+DROP POLICY IF EXISTS "Workspace members can manage notes" ON notes;
+CREATE POLICY "Workspace members can manage notes"
+  ON notes FOR ALL USING (
+    workspace_id IN (SELECT get_my_workspace_ids())
+  );
+
+DO $$ BEGIN
+  ALTER PUBLICATION supabase_realtime ADD TABLE notes;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;

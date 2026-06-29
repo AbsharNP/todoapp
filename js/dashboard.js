@@ -50,7 +50,7 @@ $(document).ready(async function () {
 
   // Open a specific panel when arriving via a hash link (e.g. dashboard.html#team)
   const hashPanel = (location.hash || '').replace('#', '');
-  if (['overview', 'diagrams', 'team', 'settings'].includes(hashPanel)) {
+  if (['overview', 'diagrams', 'notes', 'team', 'settings'].includes(hashPanel)) {
     switchPanel(hashPanel);
   }
 
@@ -121,6 +121,14 @@ $(document).ready(async function () {
   $('#btn-import-diagram').on('click', () => $('#input-import-diagram').click());
   $('#input-import-diagram').on('change', function () {
     if (this.files[0]) { importDiagram(this.files[0]); this.value = ''; }
+  });
+
+  // Notes
+  $('#btn-new-note').on('click', createNote);
+  $('#btn-save-note').on('click', saveNote);
+  $('#btn-delete-note').on('click', deleteNote);
+  $('#note-content').on('keydown', function (e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveNote(); }
   });
 
   // Todos export/import
@@ -300,6 +308,7 @@ async function loadAllData() {
   await loadTodos();
   renderOverview();
   renderDiagrams();
+  renderNotes();
   subscribeRealtime();
 }
 
@@ -985,7 +994,14 @@ function subscribeRealtime() {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'todos' }, handleTodoChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'todo_lists' }, handleListChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'todo_comments' }, handleCommentChange)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'notes', filter: `workspace_id=eq.${currentWsId}` }, handleNoteChange)
     .subscribe();
+}
+
+// A note changed elsewhere — refresh the grid (but don't clobber an open editor).
+function handleNoteChange() {
+  if ($('#modal-note').hasClass('open')) return;
+  renderNotes();
 }
 
 function listInWorkspace(listId) {
@@ -1255,6 +1271,127 @@ async function createDiagram() {
   window.location.href = `diagram.html?id=${data.id}`;
 }
 
+// ── Notes ─────────────────────────────────────────────────────
+let allNotes = [];
+let currentNoteId = null;
+
+async function renderNotes() {
+  if (!document.getElementById('notes-grid')) return; // not on this page
+  const { data, error } = await supabase
+    .from('notes')
+    .select('*')
+    .eq('workspace_id', currentWsId)
+    .order('updated_at', { ascending: false });
+
+  if (error) { APP.toast('Failed to load notes', 'error'); return; }
+  allNotes = data || [];
+
+  if (!allNotes.length) {
+    $('#notes-grid').html(`
+      <div class="empty-state" style="grid-column:1/-1">
+        <div style="font-size:48px;color:var(--accent)"><i class="fa-solid fa-note-sticky"></i></div>
+        <h4>No notes yet</h4>
+        <p>Click "New Note" to jot something down, just like a notepad.</p>
+      </div>
+    `);
+    return;
+  }
+
+  $('#notes-grid').html(allNotes.map(n => {
+    const preview = (n.content || '').trim();
+    return `
+    <div class="diagram-card note-card" data-note-id="${escHtml(n.id)}">
+      <div class="diagram-preview note-preview">${preview ? escHtml(preview.slice(0, 240)) : '<span class="note-empty">Empty note</span>'}</div>
+      <div class="diagram-card-body">
+        <div class="diagram-card-name">${escHtml(n.title || 'Untitled')}</div>
+        <div class="diagram-card-meta">${escHtml(APP.formatDate(n.updated_at))}</div>
+      </div>
+      <div class="diagram-card-actions">
+        <button class="btn btn-ghost btn-sm note-delete-btn" data-id="${escHtml(n.id)}" data-name="${escHtml(n.title || 'Untitled')}" title="Delete note"><i class="fa-solid fa-trash"></i></button>
+      </div>
+    </div>`;
+  }).join(''));
+
+  $('.note-card').on('click', function (e) {
+    if ($(e.target).closest('.note-delete-btn').length) return;
+    openNoteEditor($(this).data('note-id'));
+  });
+
+  $('.note-delete-btn').on('click', function (e) {
+    e.stopPropagation();
+    const $btn = $(this);
+    if (!$btn.data('confirming')) {
+      $btn.data('confirming', true).addClass('btn-danger');
+      APP.toast(`Click delete again to remove "${$btn.data('name')}"`, 'warning');
+      setTimeout(() => $btn.data('confirming', false).removeClass('btn-danger'), 4000);
+      return;
+    }
+    deleteNoteById($btn.data('id'), $btn.data('name'));
+  });
+}
+
+async function createNote() {
+  if (!currentWsId) return APP.toast('No workspace selected', 'error');
+  const { data, error } = await supabase.from('notes')
+    .insert({ workspace_id: currentWsId, title: 'Untitled', content: '', created_by: APP.currentUser.id })
+    .select().single();
+  if (error) return APP.toast('Failed to create note', 'error');
+  allNotes.unshift(data);
+  openNoteEditor(data.id);
+}
+
+function openNoteEditor(id) {
+  const note = allNotes.find(n => n.id === id);
+  if (!note) return;
+  currentNoteId = id;
+  $('#note-id').val(note.id);
+  $('#note-title').val(note.title === 'Untitled' ? '' : (note.title || ''));
+  $('#note-content').val(note.content || '');
+  $('#note-save-status').text('');
+  $('#note-meta').text(note.updated_at ? 'Last edited ' + formatDateTime(note.updated_at) : '');
+  openModal('modal-note');
+  setTimeout(() => $('#note-title').val() ? $('#note-content').focus() : $('#note-title').focus(), 60);
+}
+
+async function saveNote() {
+  const id = $('#note-id').val();
+  if (!id) return;
+  const title = $('#note-title').val().trim() || 'Untitled';
+  const content = $('#note-content').val();
+
+  $('#note-save-status').text('Saving…');
+  const { error } = await supabase.from('notes').update({ title, content }).eq('id', id);
+  if (error) { $('#note-save-status').text(''); return APP.toast('Failed to save note', 'error'); }
+
+  const idx = allNotes.findIndex(n => n.id === id);
+  if (idx !== -1) allNotes[idx] = { ...allNotes[idx], title, content, updated_at: new Date().toISOString() };
+  $('#note-save-status').html('<i class="fa-solid fa-check"></i> Saved');
+  $('#note-meta').text('Last edited ' + formatDateTime(new Date().toISOString()));
+  setTimeout(() => $('#note-save-status').text(''), 2000);
+  renderNotes();
+}
+
+async function deleteNote() {
+  const id = $('#note-id').val();
+  const $btn = $('#btn-delete-note');
+  if (!$btn.data('confirming')) {
+    $btn.data('confirming', true).text('Confirm delete?');
+    setTimeout(() => $btn.data('confirming', false).text('Delete'), 4000);
+    return;
+  }
+  $btn.data('confirming', false).text('Delete');
+  await deleteNoteById(id);
+  closeModal('modal-note');
+}
+
+async function deleteNoteById(id, name) {
+  const { error } = await supabase.from('notes').delete().eq('id', id);
+  if (error) return APP.toast('Failed to delete note', 'error');
+  allNotes = allNotes.filter(n => n.id !== id);
+  APP.toast(name ? `Note "${name}" deleted` : 'Note deleted', 'info');
+  renderNotes();
+}
+
 // ── Panel switching ───────────────────────────────────────────
 function switchPanel(name) {
   $('.panel').removeClass('active');
@@ -1264,7 +1401,7 @@ function switchPanel(name) {
 
   const titles = {
     overview: 'Overview', todos: 'Tasks',
-    diagrams: 'Diagrams', team: 'Team', settings: 'Settings'
+    diagrams: 'Diagrams', notes: 'Notes', team: 'Team', settings: 'Settings'
   };
   $('#panel-title').text(titles[name] || name);
 
